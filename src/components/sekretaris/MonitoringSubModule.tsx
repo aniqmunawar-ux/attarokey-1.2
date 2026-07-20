@@ -62,6 +62,8 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
   const floatingHeaderRef = useRef<HTMLDivElement>(null);
   const floatingHeaderOuterRef = useRef<HTMLDivElement>(null);
   const isSyncingScroll = useRef(false);
+  const scrollSourceRef = useRef<'main' | 'floating' | null>(null);
+  const scrollTimeoutRef = useRef<number | null>(null);
 
   const [showFloatingHeader, setShowFloatingHeader] = useState(false);
   const [floatingHeaderStyle, setFloatingHeaderStyle] = useState({ left: 0, width: 0 });
@@ -75,14 +77,16 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
     const container = tableContainerRef.current;
     if (container) {
       const { scrollLeft, scrollWidth, clientWidth } = container;
-      setCanScrollLeft(scrollLeft > 2);
-      setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 2);
+      const hasHorizontalScroll = scrollWidth > clientWidth + 4;
+      setCanScrollLeft(hasHorizontalScroll && scrollLeft > 2);
+      setCanScrollRight(hasHorizontalScroll && scrollLeft + clientWidth < scrollWidth - 2);
     }
   };
 
   const scrollTable = (direction: 'left' | 'right') => {
     const container = tableContainerRef.current;
     if (container) {
+      scrollSourceRef.current = 'main';
       const scrollAmount = 300;
       const targetScroll = direction === 'left' 
         ? container.scrollLeft - scrollAmount 
@@ -96,13 +100,19 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
   };
 
   const handleTableScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (isSyncingScroll.current) {
-      isSyncingScroll.current = false;
-      return;
-    }
-    if (floatingHeaderRef.current) {
-      isSyncingScroll.current = true;
-      floatingHeaderRef.current.scrollLeft = e.currentTarget.scrollLeft;
+    const main = e.currentTarget;
+    if (scrollSourceRef.current !== 'floating') {
+      scrollSourceRef.current = 'main';
+      if (scrollTimeoutRef.current) {
+        window.clearTimeout(scrollTimeoutRef.current);
+      }
+      scrollTimeoutRef.current = window.setTimeout(() => {
+        scrollSourceRef.current = null;
+      }, 150);
+
+      if (floatingHeaderRef.current && floatingHeaderRef.current.scrollLeft !== main.scrollLeft) {
+        floatingHeaderRef.current.scrollLeft = main.scrollLeft;
+      }
     }
     updateScrollButtons();
   };
@@ -315,8 +325,8 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
       };
     });
 
-    // Synchronize scroll left
-    if (floatingHeaderRef.current) {
+    // Synchronize scroll left using scrollSourceRef
+    if (scrollSourceRef.current !== 'floating' && floatingHeaderRef.current && tableContainerRef.current && floatingHeaderRef.current.scrollLeft !== tableContainerRef.current.scrollLeft) {
       floatingHeaderRef.current.scrollLeft = tableContainerRef.current.scrollLeft;
     }
   }, [filteredSantri.length]);
@@ -696,29 +706,16 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
 
         {/* Monitoring grid Table with Sticky Header (both vertical and horizontal) */}
         <div className="relative">
-          {/* Scroll Left Button */}
-          <button
-            id="main-scroll-left-btn"
-            type="button"
-            onClick={() => scrollTable('left')}
-            disabled={!canScrollLeft}
-            className={`absolute left-[312px] top-[14px] z-25 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
-              canScrollLeft 
-                ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
-                : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
-            }`}
-            title="Gulir Kiri"
-          >
-            <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
-          </button>
-
-          {/* Scroll Right Button */}
+          {/* Scroll Right Button placed exactly in the middle of the right side/edge line of the header */}
           <button
             id="main-scroll-right-btn"
             type="button"
-            onClick={() => scrollTable('right')}
+            onClick={(e) => {
+              e.stopPropagation();
+              scrollTable('right');
+            }}
             disabled={!canScrollRight}
-            className={`absolute right-3 top-[14px] z-25 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+            className={`absolute right-0 top-[22px] -translate-y-1/2 translate-x-1/2 z-25 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
               canScrollRight 
                 ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
                 : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
@@ -746,8 +743,25 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
                   {/* Sticky Nama Header Column (sticky left-0 for full scroll retention) */}
-                  <th className="sticky left-0 bg-slate-100 z-30 px-4 py-2.5 font-black text-slate-700 uppercase tracking-wider text-[10px] shadow-[2px_2px_5px_rgba(0,0,0,0.06)] border-r border-slate-200 min-w-[300px] w-[300px] max-w-[300px]">
+                  <th className="sticky left-0 bg-slate-100 z-30 px-4 py-2.5 font-black text-slate-700 uppercase tracking-wider text-[10px] shadow-[2px_2px_5px_rgba(0,0,0,0.06)] border-r border-slate-200 min-w-[300px] w-[300px] max-w-[300px] relative">
                     Nama Lengkap
+                    {/* Scroll Left Button placed exactly in the middle of the right side of 'nama' header column */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        scrollTable('left');
+                      }}
+                      disabled={!canScrollLeft}
+                      className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-[40] flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+                        canScrollLeft 
+                          ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
+                          : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
+                      }`}
+                      title="Gulir Kiri"
+                    >
+                      <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
+                    </button>
                   </th>
                   {currentColumns.map(col => {
                     const isAllFilled = getColumnCompleteness(col.key);
@@ -897,34 +911,22 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
       {/* Synchronized viewport-sticky floating header */}
       <div
         ref={floatingHeaderOuterRef}
-        className="fixed top-16 z-30 bg-slate-50 border-b border-slate-200/80 shadow-md"
+        className="fixed top-16 z-30 bg-slate-50 border-b border-slate-200/80 shadow-md overflow-visible"
         style={{
           left: floatingHeaderStyle.left,
           width: floatingHeaderStyle.width,
           display: showFloatingHeader ? 'block' : 'none',
         }}
       >
-          {/* Scroll Left Button */}
+          {/* Scroll Right Button inside floating header */}
           <button
             type="button"
-            onClick={() => scrollTable('left')}
-            disabled={!canScrollLeft}
-            className={`absolute left-[312px] top-1/2 -translate-y-1/2 z-35 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
-              canScrollLeft 
-                ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
-                : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
-            }`}
-            title="Gulir Kiri"
-          >
-            <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
-          </button>
-
-          {/* Scroll Right Button */}
-          <button
-            type="button"
-            onClick={() => scrollTable('right')}
+            onClick={(e) => {
+              e.stopPropagation();
+              scrollTable('right');
+            }}
             disabled={!canScrollRight}
-            className={`absolute right-3 top-1/2 -translate-y-1/2 z-35 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+            className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-[48] flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
               canScrollRight 
                 ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
                 : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
@@ -937,13 +939,19 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
           <div
             ref={floatingHeaderRef}
             onScroll={(e) => {
-              if (isSyncingScroll.current) {
-                isSyncingScroll.current = false;
-                return;
-              }
-              if (tableContainerRef.current) {
-                isSyncingScroll.current = true;
-                tableContainerRef.current.scrollLeft = e.currentTarget.scrollLeft;
+              const floating = e.currentTarget;
+              if (scrollSourceRef.current !== 'main') {
+                scrollSourceRef.current = 'floating';
+                if (scrollTimeoutRef.current) {
+                  window.clearTimeout(scrollTimeoutRef.current);
+                }
+                scrollTimeoutRef.current = window.setTimeout(() => {
+                  scrollSourceRef.current = null;
+                }, 150);
+
+                if (tableContainerRef.current && tableContainerRef.current.scrollLeft !== floating.scrollLeft) {
+                  tableContainerRef.current.scrollLeft = floating.scrollLeft;
+                }
               }
               updateScrollButtons();
             }}
@@ -957,7 +965,7 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
                 <tr className="bg-slate-50 border-b border-slate-100">
                   {/* Sticky Name column on floating header for seamless alignment */}
                   <th 
-                    className="sticky left-0 bg-slate-100 z-30 px-4 py-2.5 font-black text-slate-700 uppercase tracking-wider text-[10px] shadow-[2px_2px_5px_rgba(0,0,0,0.06)] border-r border-slate-200"
+                    className="sticky left-0 bg-slate-100 z-30 px-4 py-2.5 font-black text-slate-700 uppercase tracking-wider text-[10px] shadow-[2px_2px_5px_rgba(0,0,0,0.06)] border-r border-slate-200 relative"
                     style={{
                       width: columnWidths[0] || 300,
                       minWidth: columnWidths[0] || 300,
@@ -965,6 +973,23 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
                     }}
                   >
                     Nama Lengkap
+                    {/* Scroll Left Button placed exactly in the middle of the right side of 'nama' header column */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        scrollTable('left');
+                      }}
+                      disabled={!canScrollLeft}
+                      className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-[40] flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+                        canScrollLeft 
+                          ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
+                          : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
+                      }`}
+                      title="Gulir Kiri"
+                    >
+                      <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
+                    </button>
                   </th>
                   {currentColumns.map((col, idx) => {
                     const isAllFilled = getColumnCompleteness(col.key);

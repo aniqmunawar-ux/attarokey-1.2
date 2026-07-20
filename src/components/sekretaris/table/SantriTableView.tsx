@@ -120,6 +120,8 @@ export default function SantriTableView({
   const floatingHeaderRef = React.useRef<HTMLDivElement>(null);
   const floatingHeaderOuterRef = React.useRef<HTMLDivElement>(null);
   const isSyncingScroll = React.useRef(false);
+  const scrollSourceRef = React.useRef<'main' | 'floating' | null>(null);
+  const scrollTimeoutRef = React.useRef<number | null>(null);
 
   const updateScrollButtons = () => {
     const container = containerRef.current;
@@ -135,6 +137,7 @@ export default function SantriTableView({
   const scrollTable = (direction: 'left' | 'right') => {
     const container = containerRef.current;
     if (container) {
+      scrollSourceRef.current = 'main';
       const scrollAmount = 300;
       const targetScroll = direction === 'left' 
         ? container.scrollLeft - scrollAmount 
@@ -152,12 +155,17 @@ export default function SantriTableView({
     const container = containerRef.current;
     if (!container) return;
 
-    // Sync scroll to floating header
-    if (isSyncingScroll.current) {
-      isSyncingScroll.current = false;
-    } else {
-      if (floatingHeaderRef.current) {
-        isSyncingScroll.current = true;
+    // Sync scroll to floating header using scrollSourceRef
+    if (scrollSourceRef.current !== 'floating') {
+      scrollSourceRef.current = 'main';
+      if (scrollTimeoutRef.current) {
+        window.clearTimeout(scrollTimeoutRef.current);
+      }
+      scrollTimeoutRef.current = window.setTimeout(() => {
+        scrollSourceRef.current = null;
+      }, 150);
+
+      if (floatingHeaderRef.current && floatingHeaderRef.current.scrollLeft !== container.scrollLeft) {
         floatingHeaderRef.current.scrollLeft = container.scrollLeft;
       }
     }
@@ -470,7 +478,7 @@ export default function SantriTableView({
             : `hover:bg-slate-100/80 z-20 ${widthClass || 'w-44 min-w-[176px]'}`
           }`}
       >
-        <div className="flex items-center gap-1.5 justify-start">
+        <div className="flex items-center gap-1.5 justify-start relative">
           <span className="text-slate-400">{label}</span>
           {isSorted ? (
             sortDirection === 'asc' ? (
@@ -482,6 +490,26 @@ export default function SantriTableView({
             <ArrowUpDown className="h-3 w-3 text-slate-300 hover:text-slate-500 shrink-0" />
           )}
         </div>
+
+        {/* Scroll Left Button placed exactly in the middle of the right side of 'nama' header column */}
+        {key === 'nama' && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              scrollTable('left');
+            }}
+            disabled={!canScrollLeft}
+            className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-[40] flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+              canScrollLeft 
+                ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
+                : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
+            }`}
+            title="Gulir Kiri"
+          >
+            <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
+          </button>
+        )}
       </th>
     );
   };
@@ -565,37 +593,26 @@ export default function SantriTableView({
   const renderScrollButtons = (isFloating: boolean) => {
     return (
       <>
-        {/* Scroll Left Button */}
-        {canScrollLeft && (
-          <button
-            id={isFloating ? "table-scroll-left-btn-floating" : "table-scroll-left-btn"}
-            type="button"
-            onClick={() => scrollTable('left')}
-            className={`absolute ${
-              isSelectionMode 
-                ? 'left-[328px] md:left-[400px]' 
-                : 'left-[280px] md:left-[352px]'
-            } ${isFloating ? 'top-1/2 -translate-y-1/2' : 'top-[26px] -translate-y-1/2'} ${isFloating ? 'z-[48]' : 'z-[33]'} flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer`}
-            title="Gulir Kiri"
-          >
-            <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
-          </button>
-        )}
-
-        {/* Scroll Right Button */}
-        {canScrollRight && (
-          <button
-            id={isFloating ? "table-scroll-right-btn-floating" : "table-scroll-right-btn"}
-            type="button"
-            onClick={() => scrollTable('right')}
-            className={`absolute ${
-              isSelectionMode ? 'right-3 md:right-[108px]' : 'right-[108px]'
-            } ${isFloating ? 'top-1/2 -translate-y-1/2' : 'top-[26px] -translate-y-1/2'} ${isFloating ? 'z-[48]' : 'z-[33]'} flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer`}
-            title="Gulir Kanan"
-          >
-            <ChevronRight className="h-4 w-4 stroke-[2.5]" />
-          </button>
-        )}
+        {/* Scroll Right Button placed exactly in the middle of the right side/edge line of the header */}
+        <button
+          id={isFloating ? "table-scroll-right-btn-floating" : "table-scroll-right-btn"}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            scrollTable('right');
+          }}
+          disabled={!canScrollRight}
+          className={`absolute right-0 ${
+            isFloating ? 'top-1/2 -translate-y-1/2' : 'top-[26px] -translate-y-1/2'
+          } translate-x-1/2 z-[48] flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+            canScrollRight 
+              ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
+              : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
+          }`}
+          title="Gulir Kanan"
+        >
+          <ChevronRight className="h-4 w-4 stroke-[2.5]" />
+        </button>
       </>
     );
   };
@@ -1044,7 +1061,7 @@ export default function SantriTableView({
       {typeof document !== 'undefined' && createPortal(
         <div
           ref={floatingHeaderOuterRef}
-          className="fixed z-[45] bg-slate-50 border border-slate-100 shadow-md rounded-t-2xl overflow-hidden"
+          className="fixed z-[45] bg-slate-50 border border-slate-100 shadow-md rounded-t-2xl overflow-visible"
           style={{
             top: `${stickyTop}px`,
             left: `${floatingHeaderStyle.left}px`,
@@ -1055,13 +1072,19 @@ export default function SantriTableView({
           <div
             ref={floatingHeaderRef}
             onScroll={(e) => {
-              if (isSyncingScroll.current) {
-                isSyncingScroll.current = false;
-                return;
-              }
-              if (containerRef.current) {
-                isSyncingScroll.current = true;
-                containerRef.current.scrollLeft = e.currentTarget.scrollLeft;
+              const floating = e.currentTarget;
+              if (scrollSourceRef.current !== 'main') {
+                scrollSourceRef.current = 'floating';
+                if (scrollTimeoutRef.current) {
+                  window.clearTimeout(scrollTimeoutRef.current);
+                }
+                scrollTimeoutRef.current = window.setTimeout(() => {
+                  scrollSourceRef.current = null;
+                }, 150);
+
+                if (containerRef.current && containerRef.current.scrollLeft !== floating.scrollLeft) {
+                  containerRef.current.scrollLeft = floating.scrollLeft;
+                }
               }
             }}
             className="overflow-x-auto [&::-webkit-scrollbar]:hidden"
