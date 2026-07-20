@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   School, Plus, Trash2, Edit, Users, BookOpen, ChevronRight, 
-  ArrowLeft, Search, GraduationCap, ArrowLeftRight, Check, CheckCircle2, UserCheck, AlertCircle, X, MoreVertical
+  ArrowLeft, Search, GraduationCap, ArrowLeftRight, Check, CheckCircle2, 
+  UserCheck, AlertCircle, X, MoreVertical, Award, ShieldAlert, UserMinus, ArrowRightLeft
 } from 'lucide-react';
 import { Lembaga, Kelas, Santri, KategoriRombel, KelompokRombel, RombelAssignment } from '../../types';
 import SantriDetailModal from '../sekretaris/SantriDetailModal';
 import { PUTRA_AVATAR, PUTRI_AVATAR } from '../SekretarisHelper';
-import RombelSub from './RombelSub';
 
 interface LembagaKelasSubProps {
   lembagasList: Lembaga[];
@@ -80,25 +80,44 @@ export default function LembagaKelasSub({
   // --- Core State ---
   const [selectedGender, setSelectedGender] = useState<'Putra' | 'Putri'>(genderFilter);
   const [activeTab, setActiveTab] = useState<'Formal' | 'Internal' | 'Rombel'>(initialTab);
-  const [selectedLembaga, setSelectedLembaga] = useState<Lembaga | null>(null);
-  const [selectedKelas, setSelectedKelas] = useState<Kelas | null>(null);
   
-  // Dropdown Menu States
+  // selectedLembaga can represent either a real Lembaga (Formal/Internal) or a KategoriRombel (Rombel)
+  const [selectedLembaga, setSelectedLembaga] = useState<any | null>(null);
+  const [selectedKelas, setSelectedKelas] = useState<any | null>(null);
+  
+  // Search & Filters
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeActionStudentId, setActiveActionStudentId] = useState<string | null>(null);
+  
+  // Modal Trigger States
+  const [selectedSantriForDetail, setSelectedSantriForDetail] = useState<Santri | null>(null);
+  const [transferStudent, setTransferStudent] = useState<Santri | null>(null);
+  const [destClassId, setDestClassId] = useState<string>('');
+  
+  const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
+  const [addMemberSearch, setAddMemberSearch] = useState('');
+
+  // Toast Notification
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  // Dropdowns
   const [activeMenuLembagaId, setActiveMenuLembagaId] = useState<string | null>(null);
   const [activeMenuKelasId, setActiveMenuKelasId] = useState<string | null>(null);
   
-  // Modal & Detail States
-  const [selectedSantriForDetail, setSelectedSantriForDetail] = useState<Santri | null>(null);
-  
-  // Create / Edit Lembaga Modal States
+  // Create / Edit Lembaga (or Kategori Rombel) Modal States
   const [isLembagaModalOpen, setIsLembagaModalOpen] = useState(false);
-  const [editingLembaga, setEditingLembaga] = useState<Lembaga | null>(null);
+  const [editingLembaga, setEditingLembaga] = useState<any | null>(null);
   const [lemNama, setLemNama] = useState('');
   const [lemLogo, setLemLogo] = useState('');
+  const [lemDeskripsi, setLemDeskripsi] = useState('');
 
-  // Create / Edit Kelas Modal States
+  // Create / Edit Kelas (or Kelompok Rombel) Modal States
   const [isKelasModalOpen, setIsKelasModalOpen] = useState(false);
-  const [editingKelas, setEditingKelas] = useState<Kelas | null>(null);
+  const [editingKelas, setEditingKelas] = useState<any | null>(null);
   const [kelNama, setKelNama] = useState('');
   const [kelWali, setKelWali] = useState('');
   const [kelTingkat, setKelTingkat] = useState<'Ula' | 'Wustho' | 'Ulya' | 'Lainnya'>('Lainnya');
@@ -132,7 +151,7 @@ export default function LembagaKelasSub({
     }
   };
 
-  // Helper: Resolve Lembaga type (fallback if undefined)
+  // Helper: Resolve Lembaga type
   const getLembagaJenis = (l: Lembaga): 'Formal' | 'Internal' => {
     if (l.jenis) return l.jenis;
     const lower = l.nama.toLowerCase();
@@ -193,16 +212,131 @@ export default function LembagaKelasSub({
     }).length;
   };
 
-  // --- Actions ---
-  const handleOpenLembagaModal = (lem: Lembaga | null = null) => {
+  // --- Dynamic Unified Institutions Builder ---
+  const getCurrentInstitutions = () => {
+    if (activeTab === 'Rombel') {
+      return categoriesList.map(c => {
+        const groups = groupsList.filter(g => g.kategoriId === c.id);
+        const studentCount = groups.reduce((sum, g) => {
+          const assignedIds = assignmentsList
+            .filter(a => a.kelompokId === g.id)
+            .map(a => a.santriId);
+          const members = santriList.filter(s => assignedIds.includes(s.id) && s.gender === selectedGender);
+          return sum + members.length;
+        }, 0);
+
+        return {
+          id: c.id,
+          nama: c.nama,
+          kode: 'ROMBEL',
+          deskripsi: c.deskripsi || 'Kategori Rombongan Belajar',
+          logo: '',
+          gender: selectedGender,
+          jenis: 'Rombel',
+          classesCount: groups.length,
+          studentsCount: studentCount
+        };
+      });
+    } else {
+      return filteredLembagas.map(l => {
+        const classes = getClassesOfLembaga(l.id);
+        const studentsCount = getLembagaStudentCount(l);
+        return {
+          id: l.id,
+          nama: l.nama,
+          kode: l.kode,
+          deskripsi: l.deskripsi || '',
+          logo: l.logo || '',
+          gender: l.gender,
+          jenis: getLembagaJenis(l),
+          classesCount: classes.length,
+          studentsCount: studentsCount
+        };
+      });
+    }
+  };
+
+  const institutions = getCurrentInstitutions();
+
+  // --- Dynamic Unified Classes Builder ---
+  const getSubClassesOfSelected = () => {
+    if (!selectedLembaga) return [];
+    if (activeTab === 'Rombel') {
+      return groupsList
+        .filter(g => g.kategoriId === selectedLembaga.id)
+        .map(g => ({
+          id: g.id,
+          nama: g.nama,
+          waliKelas: g.pembimbing,
+          tingkatan: 'Lainnya',
+          kapasitas: g.kuota || 20,
+          lembagaId: selectedLembaga.id
+        }));
+    } else {
+      return getClassesOfLembaga(selectedLembaga.id);
+    }
+  };
+
+  const subClasses = getSubClassesOfSelected();
+
+  // --- Dynamic Unified Students Getter ---
+  const getStudentsInSelectedClass = () => {
+    if (!selectedKelas) return [];
+    if (activeTab === 'Rombel') {
+      const assignedIds = assignmentsList
+        .filter(a => a.kelompokId === selectedKelas.id)
+        .map(a => a.santriId);
+      return santriList.filter(s => assignedIds.includes(s.id) && s.gender === selectedGender);
+    } else {
+      return getStudentsInClass(selectedKelas, selectedLembaga);
+    }
+  };
+
+  const currentClassStudents = getStudentsInSelectedClass();
+
+  // Filtered students by search query
+  const filteredStudents = currentClassStudents.filter(s => {
+    const q = searchQuery.toLowerCase();
+    return (
+      s.nama.toLowerCase().includes(q) ||
+      (s.nis && s.nis.toLowerCase().includes(q)) ||
+      (s.nisn && s.nisn.toLowerCase().includes(q)) ||
+      (s.nism && s.nism.toLowerCase().includes(q))
+    );
+  });
+
+  // --- Automatical Selection of Topmost Class ---
+  useEffect(() => {
+    if (selectedLembaga) {
+      const classes = getSubClassesOfSelected();
+      if (classes.length > 0) {
+        // Find if selectedKelas is already in this new list, otherwise fallback to the first
+        const stillExists = classes.find(c => c.id === selectedKelas?.id);
+        if (!stillExists) {
+          setSelectedKelas(classes[0]);
+        }
+      } else {
+        setSelectedKelas(null);
+      }
+    } else {
+      setSelectedKelas(null);
+    }
+    setSearchQuery('');
+    setActiveActionStudentId(null);
+  }, [selectedLembaga, activeTab]);
+
+  // --- CRUD Handlers ---
+  const handleOpenLembagaModal = (lem: any = null) => {
     if (lem) {
       setEditingLembaga(lem);
       setLemNama(lem.nama);
       setLemLogo(lem.logo || '');
+      setLemDeskripsi(lem.deskripsi || '');
     } else {
       setEditingLembaga(null);
       setLemNama('');
       setLemLogo('');
+      setLemDeskripsi('');
     }
     setIsLembagaModalOpen(true);
   };
@@ -210,61 +344,114 @@ export default function LembagaKelasSub({
   const handleSaveLembaga = async () => {
     if (!lemNama.trim()) return;
 
-    const generateInitials = (name: string) => {
-      const clean = name.replace(/[^a-zA-Z0-9 ]/g, '').trim();
-      const parts = clean.split(/\s+/).filter(Boolean);
-      if (parts.length >= 2) {
-        return parts.map(p => p[0]).join('').toUpperCase().slice(0, 5);
+    if (activeTab === 'Rombel') {
+      if (editingLembaga) {
+        if (onUpdateCategory) {
+          await onUpdateCategory({
+            id: editingLembaga.id,
+            nama: lemNama.trim(),
+            deskripsi: lemDeskripsi.trim()
+          });
+          showToast('Kategori rombel berhasil diperbarui.');
+          // Update selectedLembaga reference if active
+          if (selectedLembaga?.id === editingLembaga.id) {
+            setSelectedLembaga({
+              ...selectedLembaga,
+              nama: lemNama.trim(),
+              deskripsi: lemDeskripsi.trim()
+            });
+          }
+        }
+      } else {
+        if (onAddCategory) {
+          const newId = 'R-' + Date.now();
+          await onAddCategory({
+            id: newId,
+            nama: lemNama.trim(),
+            deskripsi: lemDeskripsi.trim()
+          });
+          showToast('Kategori rombel baru berhasil dibuat.');
+        }
       }
-      return clean.slice(0, 3).toUpperCase();
-    };
-
-    if (editingLembaga) {
-      await onUpdateLembaga({
-        ...editingLembaga,
-        nama: lemNama,
-        logo: lemLogo || undefined
-      });
     } else {
-      const newLembagaId = 'L-' + Date.now();
-      let autoKode = generateInitials(lemNama) || 'LEM';
-      
-      // Make autoKode unique for this gender to avoid UNIQUE constraint violation on (kode, gender)
-      let baseKode = autoKode;
-      let counter = 1;
-      while (lembagasList.some(l => l.kode === autoKode && l.gender === selectedGender)) {
-        autoKode = `${baseKode}${counter}`;
-        counter++;
+      const generateInitials = (name: string) => {
+        const clean = name.replace(/[^a-zA-Z0-9 ]/g, '').trim();
+        const parts = clean.split(/\s+/).filter(Boolean);
+        if (parts.length >= 2) {
+          return parts.map(p => p[0]).join('').toUpperCase().slice(0, 5);
+        }
+        return clean.slice(0, 3).toUpperCase();
+      };
+
+      if (editingLembaga) {
+        await onUpdateLembaga({
+          ...editingLembaga,
+          nama: lemNama.trim(),
+          logo: lemLogo || undefined,
+          deskripsi: lemDeskripsi.trim()
+        });
+        showToast('Lembaga berhasil diperbarui.');
+        if (selectedLembaga?.id === editingLembaga.id) {
+          setSelectedLembaga({
+            ...selectedLembaga,
+            nama: lemNama.trim(),
+            logo: lemLogo || undefined,
+            deskripsi: lemDeskripsi.trim()
+          });
+        }
+      } else {
+        const newLembagaId = 'L-' + Date.now();
+        let autoKode = generateInitials(lemNama) || 'LEM';
+        
+        let baseKode = autoKode;
+        let counter = 1;
+        while (lembagasList.some(l => l.kode === autoKode && l.gender === selectedGender)) {
+          autoKode = `${baseKode}${counter}`;
+          counter++;
+        }
+
+        const savedLem = await onAddLembaga({
+          id: newLembagaId,
+          nama: lemNama.trim(),
+          kode: autoKode,
+          gender: selectedGender,
+          jenis: activeTab,
+          logo: lemLogo || undefined,
+          deskripsi: lemDeskripsi.trim()
+        });
+
+        const actualLembagaId = savedLem?.id || newLembagaId;
+
+        // Automatically create a default class named "Calon Pelajar"
+        await onAddKelas({
+          id: 'K-' + Date.now() + '-default',
+          lembagaId: actualLembagaId,
+          nama: 'Calon Pelajar',
+          waliKelas: '-',
+          tingkatan: 'Lainnya',
+          kapasitas: 999
+        });
+
+        showToast('Lembaga baru berhasil dibuat beserta kelas default.');
       }
-
-      const savedLem = await onAddLembaga({
-        id: newLembagaId,
-        nama: lemNama,
-        kode: autoKode,
-        gender: selectedGender,
-        jenis: activeTab,
-        logo: lemLogo || undefined
-      });
-
-      const actualLembagaId = savedLem?.id || newLembagaId;
-
-      // Automatically create a default class named "Calon Pelajar"
-      await onAddKelas({
-        id: 'K-' + Date.now() + '-default',
-        lembagaId: actualLembagaId,
-        nama: 'Calon Pelajar',
-        waliKelas: '-',
-        tingkatan: 'Lainnya',
-        kapasitas: 999
-      });
     }
 
     setIsLembagaModalOpen(false);
   };
 
   const handleDeleteLembagaClick = (id: string, name: string) => {
-    if (confirm(`Apakah Anda yakin ingin menghapus lembaga "${name}" beserta semua kelas di dalamnya?`)) {
-      onDeleteLembaga(id);
+    const isRombel = activeTab === 'Rombel';
+    const typeLabel = isRombel ? 'kategori rombel' : 'lembaga';
+    if (confirm(`Apakah Anda yakin ingin menghapus ${typeLabel} "${name}" beserta seluruh kelas/kelompok di dalamnya?`)) {
+      if (isRombel) {
+        if (onDeleteCategory) {
+          onDeleteCategory(id);
+          showToast('Kategori rombel berhasil dihapus.');
+        }
+      } else {
+        onDeleteLembaga(id);
+        showToast('Lembaga berhasil dihapus.');
+      }
       if (selectedLembaga?.id === id) {
         setSelectedLembaga(null);
         setSelectedKelas(null);
@@ -272,7 +459,7 @@ export default function LembagaKelasSub({
     }
   };
 
-  const handleOpenKelasModal = (kel: Kelas | null = null) => {
+  const handleOpenKelasModal = (kel: any = null) => {
     if (!selectedLembaga) return;
     if (kel) {
       setEditingKelas(kel);
@@ -293,52 +480,191 @@ export default function LembagaKelasSub({
   const handleSaveKelas = () => {
     if (!selectedLembaga || !kelNama.trim()) return;
 
-    if (editingKelas) {
-      onUpdateKelas({
-        ...editingKelas,
-        nama: kelNama,
-        waliKelas: kelWali || '-',
-        tingkatan: kelTingkat,
-        kapasitas: Number(kelKapasitas)
-      });
-      if (selectedKelas?.id === editingKelas.id) {
-        setSelectedKelas({
-          ...selectedKelas,
-          nama: kelNama,
-          waliKelas: kelWali || '-',
+    if (activeTab === 'Rombel') {
+      if (editingKelas) {
+        if (onUpdateGroup) {
+          onUpdateGroup({
+            id: editingKelas.id,
+            kategoriId: selectedLembaga.id,
+            nama: kelNama.trim(),
+            pembimbing: kelWali.trim() || '-',
+            kuota: Number(kelKapasitas)
+          });
+          showToast('Kelompok rombel berhasil diperbarui.');
+          if (selectedKelas?.id === editingKelas.id) {
+            setSelectedKelas({
+              ...selectedKelas,
+              nama: kelNama.trim(),
+              waliKelas: kelWali.trim() || '-',
+              kapasitas: Number(kelKapasitas)
+            });
+          }
+        }
+      } else {
+        if (onAddGroup) {
+          onAddGroup({
+            id: 'G-' + Date.now(),
+            kategoriId: selectedLembaga.id,
+            nama: kelNama.trim(),
+            pembimbing: kelWali.trim() || '-',
+            kuota: Number(kelKapasitas)
+          });
+          showToast('Kelompok rombel baru berhasil ditambahkan.');
+        }
+      }
+    } else {
+      if (editingKelas) {
+        onUpdateKelas({
+          ...editingKelas,
+          nama: kelNama.trim(),
+          waliKelas: kelWali.trim() || '-',
           tingkatan: kelTingkat,
           kapasitas: Number(kelKapasitas)
         });
+        showToast('Kelas berhasil diperbarui.');
+        if (selectedKelas?.id === editingKelas.id) {
+          setSelectedKelas({
+            ...selectedKelas,
+            nama: kelNama.trim(),
+            waliKelas: kelWali.trim() || '-',
+            tingkatan: kelTingkat,
+            kapasitas: Number(kelKapasitas)
+          });
+        }
+      } else {
+        onAddKelas({
+          id: 'K-' + Date.now(),
+          lembagaId: selectedLembaga.id,
+          nama: kelNama.trim(),
+          waliKelas: kelWali.trim() || '-',
+          tingkatan: kelTingkat,
+          kapasitas: Number(kelKapasitas)
+        });
+        showToast('Kelas baru berhasil ditambahkan.');
       }
-    } else {
-      onAddKelas({
-        id: 'K-' + Date.now(),
-        lembagaId: selectedLembaga.id,
-        nama: kelNama,
-        waliKelas: kelWali || '-',
-        tingkatan: kelTingkat,
-        kapasitas: Number(kelKapasitas)
-      });
     }
 
     setIsKelasModalOpen(false);
   };
 
   const handleDeleteKelasClick = (id: string, name: string) => {
-    if (id.endsWith('-default') || name.toLowerCase() === 'calon pelajar') {
+    if (activeTab !== 'Rombel' && (id.endsWith('-default') || name.toLowerCase() === 'calon pelajar')) {
       alert('Kelas ini adalah kelas wajib bawaan lembaga dan tidak dapat dihapus.');
       return;
     }
-    if (confirm(`Apakah Anda yakin ingin menghapus kelas "${name}"?`)) {
-      onDeleteKelas(id);
+    const label = activeTab === 'Rombel' ? 'kelompok rombel' : 'kelas';
+    if (confirm(`Apakah Anda yakin ingin menghapus ${label} "${name}"?`)) {
+      if (activeTab === 'Rombel') {
+        if (onDeleteGroup) {
+          onDeleteGroup(id);
+          showToast('Kelompok rombel berhasil dihapus.');
+        }
+      } else {
+        onDeleteKelas(id);
+        showToast('Kelas berhasil dihapus.');
+      }
       if (selectedKelas?.id === id) {
         setSelectedKelas(null);
       }
     }
   };
 
-  const handleMoveStudent = (s: Santri, l: Lembaga, newClass: string) => {
-    onUpdateSantriClass(s.id, newClass, l.id);
+  // --- Student Assignment Actions ---
+  const handleRemoveStudentFromClass = (student: Santri) => {
+    if (!selectedKelas) return;
+    const label = activeTab === 'Rombel' ? 'kelompok' : 'kelas';
+    if (confirm(`Apakah Anda yakin ingin mengeluarkan ${student.nama} dari ${label} "${selectedKelas.nama}"?`)) {
+      if (activeTab === 'Rombel') {
+        if (onRemoveAssignment) {
+          onRemoveAssignment(student.id, selectedKelas.id);
+          showToast(`${student.nama} dikeluarkan dari kelompok.`);
+        }
+      } else {
+        // Move to default class "Calon Pelajar"
+        onUpdateSantriClass(student.id, 'Calon Pelajar', selectedLembaga.id);
+        showToast(`${student.nama} dipindahkan ke kelas Calon Pelajar.`);
+      }
+    }
+  };
+
+  const handleExecuteTransfer = () => {
+    if (!transferStudent || !destClassId || !selectedKelas) return;
+    
+    if (activeTab === 'Rombel') {
+      if (onRemoveAssignment && onAddAssignment) {
+        // Remove from current
+        onRemoveAssignment(transferStudent.id, selectedKelas.id);
+        // Add to dest
+        onAddAssignment({
+          id: 'RA-' + Date.now(),
+          santriId: transferStudent.id,
+          kelompokId: destClassId,
+          kategoriId: selectedLembaga.id
+        });
+        showToast(`${transferStudent.nama} berhasil dipindahkan.`);
+      }
+    } else {
+      const destClassObj = subClasses.find(c => c.id === destClassId);
+      if (destClassObj) {
+        onUpdateSantriClass(transferStudent.id, destClassObj.nama, selectedLembaga.id);
+        showToast(`${transferStudent.nama} dipindahkan ke kelas ${destClassObj.nama}.`);
+      }
+    }
+    setTransferStudent(null);
+    setDestClassId('');
+  };
+
+  // Get active students eligible to be added to this Class/Group
+  const getEligibleStudentsForAdd = () => {
+    if (!selectedKelas) return [];
+    if (activeTab === 'Rombel') {
+      // Students who are NOT already in this Rombel Group
+      const alreadyAssignedIds = assignmentsList
+        .filter(a => a.kelompokId === selectedKelas.id)
+        .map(a => a.santriId);
+      return santriList.filter(s => s.gender === selectedGender && s.statusKeanggotaan === 'Aktif' && !alreadyAssignedIds.includes(s.id));
+    } else {
+      // Students assigned to this institution, but currently in "Calon Pelajar" or unassigned
+      const otherClasses = subClasses.filter(c => c.id !== selectedKelas.id);
+      return santriList.filter(s => {
+        if (s.gender !== selectedGender || s.statusKeanggotaan !== 'Aktif') return false;
+        
+        // Must belong to this institution
+        const isFormal = s.pendidikanFormal === selectedLembaga.id;
+        const isInternal = s.pendidikanInternal ? s.pendidikanInternal.split(',').map(x => x.trim()).includes(selectedLembaga.id) : false;
+        if (!isFormal && !isInternal) return false;
+
+        // Must not be in any other class of this institution
+        const sClasses = s.kelas ? s.kelas.split(',').map(x => x.trim().toLowerCase()) : [];
+        const inOtherClass = otherClasses.some(oc => sClasses.includes(oc.nama.toLowerCase()));
+        
+        return !inOtherClass && (sClasses.includes('calon pelajar') || !s.kelas);
+      });
+    }
+  };
+
+  const eligibleStudents = getEligibleStudentsForAdd();
+  const searchedEligibleStudents = eligibleStudents.filter(s => 
+    s.nama.toLowerCase().includes(addMemberSearch.toLowerCase()) ||
+    (s.nis && s.nis.toLowerCase().includes(addMemberSearch.toLowerCase()))
+  );
+
+  const handleAddMember = (student: Santri) => {
+    if (!selectedKelas) return;
+    if (activeTab === 'Rombel') {
+      if (onAddAssignment) {
+        onAddAssignment({
+          id: 'RA-' + Date.now(),
+          santriId: student.id,
+          kelompokId: selectedKelas.id,
+          kategoriId: selectedLembaga.id
+        });
+        showToast(`${student.nama} ditambahkan ke kelompok.`);
+      }
+    } else {
+      onUpdateSantriClass(student.id, selectedKelas.nama, selectedLembaga.id);
+      showToast(`${student.nama} dimasukkan ke kelas ${selectedKelas.nama}.`);
+    }
   };
 
   // Render Student table avatars safely
@@ -349,7 +675,7 @@ export default function LembagaKelasSub({
       <img 
         src={src} 
         alt={s.nama} 
-        className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0 shadow-sm"
+        className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0 shadow-xs"
         referrerPolicy="no-referrer"
       />
     );
@@ -357,42 +683,75 @@ export default function LembagaKelasSub({
 
   const canWriteCurrent = selectedGender === 'Putra' ? canWritePutra : canWritePutri;
 
+  // Compute Verval stats
+  const totalStudents = currentClassStudents.length;
+  const verifiedCount = currentClassStudents.filter(s => s.nisn && s.nisn.trim() !== '').length;
+  const pendingCount = totalStudents - verifiedCount;
+  const verifiedPercent = totalStudents > 0 ? Math.round((verifiedCount / totalStudents) * 100) : 0;
+
   return (
     <div className="space-y-6">
       
-      {/* 1. Header with Title & Gender Toggle Switcher (Persis UI/UX Data Induk Santri tanpa kotak kontainer) */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl flex flex-wrap items-center gap-x-2">
-            <span>Aktivitas Akademik</span>
-            <span 
-              onClick={() => {
-                setSelectedGender(selectedGender === 'Putra' ? 'Putri' : 'Putra');
-                setSelectedLembaga(null);
-                setSelectedKelas(null);
-              }}
-              className={`inline-flex items-center gap-1.5 transition-all duration-200 select-none cursor-pointer active:scale-95 ${
-                selectedGender === 'Putra' 
-                  ? 'text-indigo-600 hover:text-indigo-700' 
-                  : 'text-rose-600 hover:text-rose-700'
-              }`}
-              title="Klik untuk mengubah filter gender (Putra ⇄ Putri)"
-            >
-              <span>
-                {selectedGender === 'Putra' ? 'Santri Putra' : 'Santri Putri'}
-              </span>
-              <ArrowLeftRight className="h-5 w-5 mt-0.5 shrink-0" />
-            </span>
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Pengelolaan Satuan Pendidikan Formal, Internal, dan Rombongan Belajar Santri secara terpadu.
-          </p>
-        </div>
-      </div>
+      {/* LOCAL TOAST NOTIFICATION POPUP */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.9 }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none"
+          >
+            <div className={`px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 border ${
+              toast.type === 'success' 
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                : 'bg-rose-50 text-rose-800 border-rose-200'
+            }`}>
+              {toast.type === 'success' ? (
+                <div className="h-5 w-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">✓</div>
+              ) : (
+                <div className="h-5 w-5 rounded-full bg-rose-500 text-white flex items-center justify-center text-xs font-bold">!</div>
+              )}
+              <span className="text-xs font-bold">{toast.message}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* 2. Full Width Horizontal Tab Bar */}
-      {!selectedKelas && (
-        <div className="w-full border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* 1. Header with Title & Gender Toggle Switcher (HIDDEN WHEN IN split-view) */}
+      {!selectedLembaga && (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between animate-fade-in">
+          <div>
+            <h1 className="font-display text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl flex flex-wrap items-center gap-x-2">
+              <span>Aktivitas Akademik</span>
+              <span 
+                onClick={() => {
+                  setSelectedGender(selectedGender === 'Putra' ? 'Putri' : 'Putra');
+                  setSelectedLembaga(null);
+                  setSelectedKelas(null);
+                }}
+                className={`inline-flex items-center gap-1.5 transition-all duration-200 select-none cursor-pointer active:scale-95 ${
+                  selectedGender === 'Putra' 
+                    ? 'text-indigo-600 hover:text-indigo-700' 
+                    : 'text-rose-600 hover:text-rose-700'
+                }`}
+                title="Klik untuk mengubah filter gender (Putra ⇄ Putri)"
+              >
+                <span>
+                  {selectedGender === 'Putra' ? 'Santri Putra' : 'Santri Putri'}
+                </span>
+                <ArrowLeftRight className="h-5 w-5 mt-0.5 shrink-0" />
+              </span>
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Pengelolaan Satuan Pendidikan Formal, Internal, dan Rombongan Belajar Santri secara terpadu.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Full Width Horizontal Tab Bar (HIDDEN WHEN IN split-view) */}
+      {!selectedLembaga && (
+        <div className="w-full border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in">
           <div className="flex space-x-8">
             <button
               onClick={() => handleTabChange('Formal')}
@@ -426,13 +785,13 @@ export default function LembagaKelasSub({
             </button>
           </div>
 
-          {!selectedLembaga && activeTab !== 'Rombel' && canWriteCurrent && (
+          {canWriteCurrent && (
             <button
               onClick={() => handleOpenLembagaModal()}
-              className="mb-3 sm:mb-0 inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
+              className="mb-3 sm:mb-0 inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
             >
               <Plus className="h-4 w-4" />
-              Buat Lembaga
+              <span>{activeTab === 'Rombel' ? 'Buat Kategori Rombel' : 'Buat Lembaga'}</span>
             </button>
           )}
         </div>
@@ -440,36 +799,9 @@ export default function LembagaKelasSub({
 
       {/* MAIN VIEWPORT */}
       <AnimatePresence mode="wait">
-        {activeTab === 'Rombel' ? (
-          <motion.div
-            key="rombel-sub-view"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="space-y-6"
-          >
-            <RombelSub
-              categoriesList={categoriesList}
-              groupsList={groupsList}
-              assignmentsList={assignmentsList}
-              santriList={santriList}
-              onAddCategory={onAddCategory!}
-              onUpdateCategory={onUpdateCategory!}
-              onDeleteCategory={onDeleteCategory!}
-              onAddGroup={onAddGroup!}
-              onUpdateGroup={onUpdateGroup!}
-              onDeleteGroup={onDeleteGroup!}
-              onAddAssignment={onAddAssignment!}
-              onRemoveAssignment={onRemoveAssignment!}
-              genderFilter={selectedGender}
-              canViewPutra={canViewPutra}
-              canViewPutri={canViewPutri}
-              canWritePutra={canWritePutra}
-              canWritePutri={canWritePutri}
-              hideTitle={true}
-            />
-          </motion.div>
-        ) : !selectedLembaga ? (
+        
+        {/* GRID OF CARDS (Formal, Internal, Rombel categories) when no institution/category selected */}
+        {!selectedLembaga ? (
           <motion.div
             key="lembaga-grid-view"
             initial={{ opacity: 0, y: 10 }}
@@ -477,28 +809,24 @@ export default function LembagaKelasSub({
             exit={{ opacity: 0, y: -10 }}
             className="space-y-6"
           >
-            {/* Cards Grid */}
-            {filteredLembagas.length === 0 ? (
+            {institutions.length === 0 ? (
               <div className="text-center py-16 bg-white rounded-3xl border border-slate-100 shadow-sm p-8">
                 <School className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-                <h3 className="text-sm font-bold text-slate-700">Belum Ada Lembaga</h3>
+                <h3 className="text-sm font-bold text-slate-700">Belum Ada Satuan Data</h3>
                 <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                  Belum ada lembaga pendidikan kategori {activeTab} yang terdaftar untuk Santri {selectedGender}. Silakan buat lembaga baru.
+                  Belum ada data terdaftar untuk gender {selectedGender}. Silakan buat data baru untuk memulai penataan kelas.
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {filteredLembagas.map((l) => {
-                  const instClasses = getClassesOfLembaga(l.id);
-                  const instStudentsCount = getLembagaStudentCount(l);
-
+                {institutions.map((l: any) => {
                   return (
                     <div
                       key={l.id}
                       onClick={() => setSelectedLembaga(l)}
                       className="group relative bg-white border border-slate-100 rounded-2xl cursor-pointer transition-all hover:border-slate-300 hover:shadow-md flex h-32 overflow-hidden"
                     >
-                      {/* Logo on the left, full height of card */}
+                      {/* Logo or placeholder icon on the left */}
                       <div className="w-32 bg-slate-50 flex items-center justify-center shrink-0 border-r border-slate-100 relative overflow-hidden">
                         {l.logo ? (
                           <img
@@ -509,21 +837,32 @@ export default function LembagaKelasSub({
                           />
                         ) : (
                           <div className="flex flex-col items-center justify-center p-2 text-slate-300 text-center">
-                            <School className="h-8 w-8 text-slate-300" />
-                            <span className="text-[9px] font-black uppercase tracking-wider text-slate-450 mt-1">
-                              {l.kode.slice(0, 3).toUpperCase()}
+                            {activeTab === 'Rombel' ? (
+                              <Award className="h-8 w-8 text-slate-300" />
+                            ) : (
+                              <School className="h-8 w-8 text-slate-300" />
+                            )}
+                            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 mt-1">
+                              {l.kode.slice(0, 5).toUpperCase()}
                             </span>
                           </div>
                         )}
                       </div>
 
-                      {/* Content on the right */}
-                      <div className="flex-1 p-4 pt-6 flex flex-col justify-between min-w-0">
+                      {/* Card Content on the right */}
+                      <div className="flex-1 p-4 flex flex-col justify-between min-w-0">
                         <div>
                           <div className="flex items-start justify-between gap-3">
-                            <h3 className="text-base md:text-lg font-black text-slate-800 leading-snug group-hover:text-emerald-700 transition-colors truncate">
-                              {l.nama}
-                            </h3>
+                            <div className="min-w-0">
+                              <h3 className="text-base font-black text-slate-800 leading-tight group-hover:text-emerald-700 transition-colors truncate">
+                                {l.nama}
+                              </h3>
+                              {l.deskripsi && (
+                                <p className="text-[10px] text-slate-400 font-medium truncate mt-0.5">
+                                  {l.deskripsi}
+                                </p>
+                              )}
+                            </div>
 
                             {/* Three-dot Dropdown */}
                             {canWriteCurrent && (
@@ -554,7 +893,7 @@ export default function LembagaKelasSub({
                                           setActiveMenuLembagaId(null);
                                           handleOpenLembagaModal(l);
                                         }}
-                                        className="w-full text-left px-3 py-1.5 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                                        className="w-full text-left px-3 py-1.5 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
                                       >
                                         Edit
                                       </button>
@@ -564,7 +903,7 @@ export default function LembagaKelasSub({
                                           setActiveMenuLembagaId(null);
                                           handleDeleteLembagaClick(l.id, l.nama);
                                         }}
-                                        className="w-full text-left px-3 py-1.5 hover:bg-rose-50 text-rose-600 hover:text-rose-700 transition-colors"
+                                        className="w-full text-left px-3 py-1.5 hover:bg-rose-50 text-rose-600 hover:text-rose-700 transition-colors cursor-pointer"
                                       >
                                         Hapus
                                       </button>
@@ -577,14 +916,14 @@ export default function LembagaKelasSub({
                         </div>
 
                         {/* Stats counters */}
-                        <div className="flex items-center gap-4 text-xs font-semibold text-slate-500 mt-auto">
+                        <div className="flex items-center gap-4 text-xs font-semibold text-slate-500">
                           <div className="flex items-center gap-1.5">
                             <BookOpen className="h-4 w-4 text-slate-400 shrink-0" />
-                            <span>{instClasses.length} Kelas</span>
+                            <span>{l.classesCount} {activeTab === 'Rombel' ? 'Kelompok' : 'Kelas'}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <Users className="h-4 w-4 text-slate-400 shrink-0" />
-                            <span>{instStudentsCount} Santri</span>
+                            <span>{l.studentsCount} Santri</span>
                           </div>
                         </div>
                       </div>
@@ -594,127 +933,140 @@ export default function LembagaKelasSub({
               </div>
             )}
           </motion.div>
-        ) : !selectedKelas ? (
+        ) : (
+                 /* 3. WIDESCREEN 30/70 SPLIT LAYOUT (Halaman tampilan luas yang memanfaatkan seluruh lebar layar) */
           <motion.div
-            key={`classes-of-${selectedLembaga.id}`}
-            initial={{ opacity: 0, x: 15 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -15 }}
-            className="space-y-6"
+            key="split-view-container"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="bg-white border border-slate-200 rounded-[2rem] p-6 shadow-xs animate-fade-in"
           >
-            {/* Back Button to return to Lembaga list */}
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => setSelectedLembaga(null)}
-                className="inline-flex items-center gap-1.5 text-slate-600 hover:text-slate-800 font-bold text-xs cursor-pointer transition-all bg-white hover:bg-slate-50 border border-slate-200/70 px-3 py-2 rounded-xl shadow-sm"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
-                KEMBALI KE DAFTAR LEMBAGA
-              </button>
-            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch min-h-[580px]">
+              
+              {/* LEFT COLUMN (30% Width - col-span-4) - Styled as a beautiful nested card inside the master wrapper */}
+              <div className="lg:col-span-4 bg-slate-50/70 border border-slate-200/60 rounded-3xl p-5 flex flex-col relative min-h-[580px] overflow-hidden">
+                
+                {/* Top-Left Back Button */}
+                <button
+                  onClick={() => {
+                    setSelectedLembaga(null);
+                    setSelectedKelas(null);
+                  }}
+                  className="absolute top-4 left-4 w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center bg-white hover:bg-slate-50 transition-all cursor-pointer shadow-3xs"
+                  title="Kembali ke Daftar Unit"
+                >
+                  <ArrowLeft className="h-4.5 w-4.5 text-slate-600" />
+                </button>
 
-            {/* Institution Header Card */}
-            <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm flex items-center gap-5">
-              <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-700 font-black text-xl flex items-center justify-center border border-emerald-100 shadow-sm shrink-0 overflow-hidden">
-                {selectedLembaga.logo ? (
-                  <img src={selectedLembaga.logo} alt={selectedLembaga.nama} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                ) : (
-                  <School className="h-7 w-7" />
-                )}
-              </div>
-              <div>
-                <h2 className="text-lg font-black text-slate-800 leading-tight">{selectedLembaga.nama}</h2>
-                <p className="text-xs text-slate-400 mt-1 font-semibold">
-                  Kategori: <span className="text-emerald-600 uppercase">{activeTab}</span> | Santri: <span className="text-slate-600 uppercase">{selectedGender}</span>
-                </p>
-              </div>
-            </div>
+                {/* Center Logo & Name Header */}
+                <div className="flex flex-col items-center text-center mt-5 mb-5">
+                  {/* Circle Logo Container (No Outline) */}
+                  <div className="w-24 h-24 rounded-full overflow-hidden flex items-center justify-center bg-emerald-50 mb-3 shadow-3xs">
+                    {selectedLembaga.logo ? (
+                      <img 
+                        src={selectedLembaga.logo} 
+                        alt={selectedLembaga.nama} 
+                        className="w-full h-full object-cover" 
+                        referrerPolicy="no-referrer" 
+                      />
+                    ) : activeTab === 'Rombel' ? (
+                      <Award className="h-10 w-10 text-emerald-600" />
+                    ) : (
+                      <School className="h-10 w-10 text-emerald-600" />
+                    )}
+                  </div>
 
-            {/* List of Classes */}
-            <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-                <div>
-                  <h3 className="text-base font-black text-slate-800">Daftar Kelas</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Silakan pilih kelas untuk melihat detail nama anggota dan status administrasinya.
+                  {/* Institution Name */}
+                  <h2 className="text-xl font-black text-slate-800 tracking-tight leading-tight uppercase px-4 truncate w-full">
+                    {selectedLembaga.nama}
+                  </h2>
+                  
+                  {/* Stats */}
+                  <p className="text-xs font-bold text-slate-500 mt-1.5 uppercase tracking-wide">
+                    {subClasses.length} {activeTab === 'Rombel' ? 'Kelompok' : 'Kelas'} &bull; {institutions.find(x => x.id === selectedLembaga.id)?.studentsCount || 0} Santri
                   </p>
                 </div>
 
-                {canWriteCurrent && (
-                  <button
-                    onClick={() => handleOpenKelasModal()}
-                    className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 self-start sm:self-center"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Tambah Kelas
-                  </button>
-                )}
-              </div>
-
-              {getClassesOfLembaga(selectedLembaga.id).length === 0 ? (
-                <p className="text-xs text-slate-400 italic text-center py-6">
-                  Belum ada kelas terdaftar di lembaga ini.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {getClassesOfLembaga(selectedLembaga.id).map(c => {
-                    const studs = getStudentsInClass(c, selectedLembaga);
-                    const isDefault = c.id.endsWith('-default') || c.nama.toLowerCase() === 'calon pelajar';
-
-                    return (
-                      <div
-                        key={c.id}
-                        onClick={() => setSelectedKelas(c)}
-                        className="group bg-slate-50/50 hover:bg-white border border-slate-100 hover:border-emerald-300 rounded-2xl p-4 cursor-pointer transition-all shadow-sm flex flex-col justify-between"
+                {/* Nested Daftar Kelas Panel - Adjusted to full-width matching the parent card */}
+                <div className="flex-1 bg-white/70 border-t border-slate-200/60 -mx-5 -mb-5 p-5 rounded-b-3xl flex flex-col min-h-[300px]">
+                  {/* Centered Title */}
+                  <div className="text-center pb-3 border-b border-slate-200/50 mb-4.5 flex items-center justify-between">
+                    <div className="w-6" /> {/* spacer for balance */}
+                    <span className="text-xs font-black text-slate-600 uppercase tracking-wider">
+                      Daftar {activeTab === 'Rombel' ? 'Rombel' : 'Kelas'}
+                    </span>
+                    {canWriteCurrent ? (
+                      <button
+                        onClick={() => handleOpenKelasModal()}
+                        className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white p-1 rounded-lg text-[10px] font-bold transition-all hover:scale-105 cursor-pointer shadow-xs"
+                        title={activeTab === 'Rombel' ? 'Tambah Kelompok Rombel' : 'Tambah Kelas'}
                       >
-                        <div>
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            <h4 className="text-xs font-black text-slate-800 group-hover:text-emerald-700 transition-all flex items-center gap-1.5">
-                              <GraduationCap className="h-4 w-4 text-emerald-600 shrink-0" />
-                              <span>{c.nama}</span>
-                            </h4>
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    ) : (
+                      <div className="w-6" />
+                    )}
+                  </div>
 
-                            {/* Three-dot Dropdown */}
+                  {/* Scrollable list */}
+                  <div className="flex-1 overflow-y-auto space-y-2.5 max-h-[380px] pr-1 scrollbar-thin">
+                    {subClasses.length === 0 ? (
+                      <div className="text-center py-10 text-slate-400 text-xs font-medium italic">
+                        Belum ada {activeTab === 'Rombel' ? 'kelompok' : 'kelas'} terdaftar.
+                      </div>
+                    ) : (
+                      subClasses.map((c: any) => {
+                        const isSelected = selectedKelas?.id === c.id;
+                        const isDefault = activeTab !== 'Rombel' && (c.id.endsWith('-default') || c.nama.toLowerCase() === 'calon pelajar');
+                        
+                        return (
+                          <div
+                            key={c.id}
+                            onClick={() => setSelectedKelas(c)}
+                            className={`group p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between relative select-none ${
+                              isSelected 
+                                ? 'bg-emerald-600 border-emerald-600 text-white shadow-md' 
+                                : 'bg-white border-slate-200 text-slate-700 hover:border-slate-350 hover:bg-slate-50/50 shadow-2xs'
+                            }`}
+                          >
+                            <span className="text-xs font-extrabold truncate uppercase pr-2">
+                              {c.nama}
+                            </span>
+
+                            {/* Ellipsis menu button on the right */}
                             {canWriteCurrent && (
-                              <div className="relative shrink-0">
+                              <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
                                 <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveMenuKelasId(activeMenuKelasId === c.id ? null : c.id);
-                                  }}
-                                  className="p-1 rounded hover:bg-slate-200 text-slate-500 transition-all cursor-pointer"
-                                  title="Menu Kelas"
+                                  onClick={() => setActiveMenuKelasId(activeMenuKelasId === c.id ? null : c.id)}
+                                  className={`p-1 rounded-md transition-colors ${
+                                    isSelected 
+                                      ? 'hover:bg-emerald-700 text-emerald-100' 
+                                      : 'hover:bg-slate-100 text-slate-400 hover:text-slate-700'
+                                  }`}
                                 >
                                   <MoreVertical className="h-3.5 w-3.5" />
                                 </button>
                                 {activeMenuKelasId === c.id && (
                                   <>
-                                    <div 
-                                      className="fixed inset-0 z-10" 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setActiveMenuKelasId(null);
-                                      }}
-                                    />
-                                    <div className="absolute right-0 mt-1 w-24 bg-white border border-slate-250 rounded-lg shadow-md z-20 py-1 text-[11px] font-bold text-slate-700">
+                                    <div className="fixed inset-0 z-20" onClick={() => setActiveMenuKelasId(null)} />
+                                    <div className="absolute right-0 mt-1 w-24 bg-white border border-slate-200 rounded-lg shadow-md z-30 py-1 text-[10px] font-bold text-slate-700">
                                       <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
+                                        onClick={() => {
                                           setActiveMenuKelasId(null);
                                           handleOpenKelasModal(c);
                                         }}
-                                        className="w-full text-left px-2.5 py-1.5 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                                        className="w-full text-left px-2.5 py-1.5 hover:bg-slate-50 cursor-pointer"
                                       >
                                         Edit
                                       </button>
                                       {!isDefault && (
                                         <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
+                                          onClick={() => {
                                             setActiveMenuKelasId(null);
                                             handleDeleteKelasClick(c.id, c.nama);
                                           }}
-                                          className="w-full text-left px-2.5 py-1.5 hover:bg-rose-50 text-rose-600 hover:text-rose-700 transition-colors"
+                                          className="w-full text-left px-2.5 py-1.5 hover:bg-rose-50 text-rose-600 cursor-pointer"
                                         >
                                           Hapus
                                         </button>
@@ -725,205 +1077,258 @@ export default function LembagaKelasSub({
                               </div>
                             )}
                           </div>
-
-                          <p className="text-[11px] text-slate-400">
-                            Wali Kelas: <span className="font-semibold text-slate-600">{c.waliKelas}</span>
-                          </p>
-                          <p className="text-[10px] text-slate-400 font-mono uppercase mt-1 tracking-wider">
-                            Tingkatan: {c.tingkatan}
-                          </p>
-                        </div>
-
-                        <div className="border-t border-slate-100/80 pt-2.5 mt-4 flex items-center justify-between text-xs">
-                          <span className="font-semibold text-slate-500">
-                            Kapasitas: <span className="font-mono text-slate-700">{c.kapasitas}</span>
-                          </span>
-                          <span className="font-bold text-emerald-700 bg-emerald-50 border border-emerald-100/50 px-2 py-0.5 rounded-full flex items-center gap-1 text-[10px]">
-                            <Users className="h-3 w-3 shrink-0" />
-                            <span>{studs.length} Santri</span>
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        ) : (
-          /* 3. Detailed Class Broad View ("halaman tampilan luas") */
-          <motion.div
-            key="detailed-class-view"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="space-y-6"
-          >
-            {/* Back Button */}
-            <button
-              onClick={() => setSelectedKelas(null)}
-              className="inline-flex items-center gap-1.5 text-slate-500 hover:text-slate-800 font-bold text-xs cursor-pointer transition-colors bg-white hover:bg-slate-50 border border-slate-200/60 px-3 py-1.5 rounded-xl shadow-sm"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              KEMBALI KE DAFTAR KELAS
-            </button>
-
-            {/* Class Info Box */}
-            <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <div className="text-[10px] text-emerald-650 font-black uppercase tracking-wider">
-                  {selectedLembaga?.nama} ({selectedLembaga?.kode})
-                </div>
-                <h2 className="text-xl font-black text-slate-800 mt-1 flex items-center gap-2">
-                  <GraduationCap className="h-6 w-6 text-emerald-600 shrink-0" />
-                  <span>Kelas: {selectedKelas.nama}</span>
-                </h2>
-                
-                <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3 text-xs text-slate-500">
-                  <p>
-                    Wali Kelas: <span className="font-semibold text-slate-700">{selectedKelas.waliKelas}</span>
-                  </p>
-                  <p>
-                    Tingkatan: <span className="font-mono font-semibold text-slate-700">{selectedKelas.tingkatan}</span>
-                  </p>
-                  <p>
-                    Kapasitas: <span className="font-mono font-semibold text-slate-700">{selectedKelas.kapasitas}</span>
-                  </p>
-                </div>
-              </div>
-
-              {/* Class Members Summary Card */}
-              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex items-center gap-3 shrink-0 self-start md:self-center">
-                <Users className="h-8 w-8 text-emerald-600 shrink-0" />
-                <div>
-                  <div className="text-[10px] text-slate-400 font-extrabold uppercase">TOTAL ANGGOTA</div>
-                  <div className="text-lg font-black text-slate-800 leading-tight">
-                    {getStudentsInClass(selectedKelas, selectedLembaga!).length} Santri
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Members Table */}
-            <div className="bg-white border border-slate-100 rounded-3xl overflow-hidden shadow-sm">
-              <div className="p-5 border-b border-slate-100">
-                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
-                  Tabel Anggota Kelas
-                </h3>
-              </div>
-
-              <div className="overflow-x-auto select-text">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50/50 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                      <th className="py-4 px-5 w-12 text-center">No</th>
-                      <th className="py-4 px-5">Nama Lengkap</th>
-                      <th className="py-4 px-5">NISM</th>
-                      <th className="py-4 px-5">NISN</th>
-                      <th className="py-4 px-5">Status EMIS</th>
-                      <th className="py-4 px-5">Status Verval</th>
-                      {canWriteCurrent && <th className="py-4 px-5 text-center">Aksi</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50 text-xs text-slate-700 font-medium">
-                    {getStudentsInClass(selectedKelas, selectedLembaga!).length === 0 ? (
-                      <tr>
-                        <td colSpan={canWriteCurrent ? 7 : 6} className="py-12 text-center text-slate-400 italic font-medium">
-                          Belum ada santri terdaftar di kelas ini.
-                        </td>
-                      </tr>
-                    ) : (
-                      getStudentsInClass(selectedKelas, selectedLembaga!).map((s, idx) => {
-                        // Verval status logic:
-                        // 'Terverifikasi' if NISN is present, otherwise 'Proses'
-                        const isNisnValid = s.nisn && s.nisn.trim() !== '';
-                        const isNismValid = s.nism && s.nism.trim() !== '';
-                        const isEmisTerdaftar = s.statusEmis === 'Terdaftar';
-
-                        return (
-                          <tr key={s.id} className="hover:bg-slate-50/30 transition-all">
-                            <td className="py-4 px-5 text-center font-mono text-slate-400">
-                              {idx + 1}
-                            </td>
-                            
-                            {/* Nama Lengkap with Avatar, NIS and Alamat */}
-                            <td className="py-3 px-5">
-                              <div className="flex items-center gap-3">
-                                {renderStudentAvatar(s)}
-                                <div className="min-w-0">
-                                  {/* Clicking full name opens detailed biodata */}
-                                  <div
-                                    onClick={() => setSelectedSantriForDetail(s)}
-                                    className="font-bold text-slate-800 hover:text-emerald-700 hover:underline cursor-pointer transition-colors max-w-xs truncate"
-                                    title="Lihat Biodata Lengkap"
-                                  >
-                                    {s.nama}
-                                  </div>
-                                  <div className="text-[10px] font-mono text-slate-400 mt-0.5">
-                                    NIS: {s.nis || '-'}
-                                  </div>
-                                  <div className="text-[10px] text-slate-400 truncate max-w-xs mt-0.5 font-normal">
-                                    {s.alamat || '-'}
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-
-                            <td className="py-4 px-5 font-mono text-slate-600">
-                              {s.nism || '-'}
-                            </td>
-
-                            <td className="py-4 px-5 font-mono text-slate-600">
-                              {s.nisn || '-'}
-                            </td>
-
-                            <td className="py-4 px-5">
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                                isEmisTerdaftar
-                                  ? 'bg-emerald-50 border-emerald-200/60 text-emerald-700'
-                                  : 'bg-amber-50 border-amber-200/60 text-amber-700'
-                              }`}>
-                                <span className={`h-1.5 w-1.5 rounded-full ${isEmisTerdaftar ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                                {s.statusEmis || 'Belum'}
-                              </span>
-                            </td>
-
-                            <td className="py-4 px-5">
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                                isNisnValid
-                                  ? 'bg-blue-50 border-blue-200/60 text-blue-700'
-                                  : 'bg-rose-50 border-rose-200/60 text-rose-700'
-                              }`}>
-                                <span className={`h-1.5 w-1.5 rounded-full ${isNisnValid ? 'bg-blue-500' : 'bg-rose-500'}`} />
-                                {isNisnValid ? 'Terverifikasi' : 'Proses'}
-                              </span>
-                            </td>
-
-                            {canWriteCurrent && (
-                              <td className="py-3 px-5 text-center">
-                                <div className="inline-flex items-center">
-                                  {/* Dropdown list to re-assign class */}
-                                  <select
-                                    value={selectedKelas.nama}
-                                    onChange={(e) => handleMoveStudent(s, selectedLembaga!, e.target.value)}
-                                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-600 focus:border-emerald-500 outline-none cursor-pointer"
-                                  >
-                                    {getClassesOfLembaga(selectedLembaga!.id).map(cls => (
-                                      <option key={cls.id} value={cls.nama}>
-                                        Pindah ke: {cls.nama}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                              </td>
-                            )}
-                          </tr>
                         );
                       })
                     )}
-                  </tbody>
-                </table>
+                  </div>
+                </div>
+
               </div>
+
+              {/* RIGHT COLUMN (70% Width - col-span-8) */}
+              <div className="lg:col-span-8 flex flex-col gap-4">
+                
+                {!selectedKelas ? (
+                  <div className="flex-1 bg-transparent p-12 flex flex-col items-center justify-center text-center h-full min-h-[500px]">
+                    <GraduationCap className="h-16 w-16 text-slate-300 mb-4 animate-pulse" />
+                    <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">Silakan Pilih Kelas</h3>
+                    <p className="text-xs text-slate-400 max-w-xs mt-2 font-medium">
+                      Pilih salah satu kelas di bawah naungan {selectedLembaga.nama} pada panel kiri untuk melihat daftar anggotanya.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-transparent p-0 flex flex-col flex-1 min-h-[500px]">
+                    
+                    {/* 1. Detail Kelas Card Top Section */}
+                    <div className="flex items-start justify-between pb-4">
+                      <div>
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Detail Kelas</span>
+                        <h2 className="text-2xl font-black text-slate-800 tracking-tight leading-tight uppercase mt-1">
+                          {selectedKelas.nama}
+                        </h2>
+                      </div>
+
+                      {/* Class actions three-dot menu button */}
+                      {canWriteCurrent && (
+                        <div className="relative shrink-0">
+                          <button
+                            onClick={() => setActiveMenuKelasId(activeMenuKelasId === `top-${selectedKelas.id}` ? null : `top-${selectedKelas.id}`)}
+                            className="p-2 rounded-full border border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-all cursor-pointer shadow-3xs"
+                            title="Menu Aksi Kelas"
+                          >
+                            <MoreVertical className="h-4.5 w-4.5" />
+                          </button>
+                          {activeMenuKelasId === `top-${selectedKelas.id}` && (
+                            <>
+                              <div className="fixed inset-0 z-20" onClick={() => setActiveMenuKelasId(null)} />
+                              <div className="absolute right-0 mt-1.5 w-32 bg-white border border-slate-200 rounded-xl shadow-lg z-30 py-1 text-xs font-bold text-slate-700">
+                                <button
+                                  onClick={() => {
+                                    setActiveMenuKelasId(null);
+                                    handleOpenKelasModal(selectedKelas);
+                                  }}
+                                  className="w-full text-left px-3.5 py-2 hover:bg-slate-50 cursor-pointer"
+                                >
+                                  Edit Kelas
+                                </button>
+                                {activeTab === 'Rombel' ? null : (
+                                  <button
+                                    onClick={() => {
+                                      setActiveMenuKelasId(null);
+                                      setAddMemberSearch('');
+                                      setIsAddMemberModalOpen(true);
+                                    }}
+                                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 text-emerald-600 cursor-pointer"
+                                  >
+                                    Tambah Anggota
+                                  </button>
+                                )}
+                                {!(activeTab !== 'Rombel' && (selectedKelas.id.endsWith('-default') || selectedKelas.nama.toLowerCase() === 'calon pelajar')) && (
+                                  <button
+                                    onClick={() => {
+                                      setActiveMenuKelasId(null);
+                                      handleDeleteKelasClick(selectedKelas.id, selectedKelas.nama);
+                                    }}
+                                    className="w-full text-left px-3.5 py-2 hover:bg-rose-50 text-rose-600 cursor-pointer"
+                                  >
+                                    Hapus Kelas
+                                  </button>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 2. Thin Horizontal Metadata Bar */}
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 py-3 border-y border-slate-200 text-xs font-bold text-slate-500 mb-6 shrink-0 bg-slate-50/30 px-2 rounded-lg">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-400 font-extrabold uppercase shrink-0">Wali Kelas:</span>
+                        <span className="text-slate-800 truncate">{selectedKelas.waliKelas || '-'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 sm:justify-center">
+                        <span className="text-[10px] text-slate-400 font-extrabold uppercase shrink-0">Jumlah Anggota:</span>
+                        <span className="text-slate-800 font-mono">{totalStudents} Santri</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 sm:justify-center">
+                        <span className="text-emerald-600 font-mono">{verifiedCount} Sukses Verval</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 sm:justify-end">
+                        <span className="text-rose-600 font-mono">{pendingCount} Proses Verval</span>
+                      </div>
+                    </div>
+
+                    {/* 3. TABLE CONTAINER (Header + Detail Anggota scroll section) */}
+                    <div className="flex-1 flex flex-col min-h-[300px] border border-slate-150 rounded-2xl overflow-hidden bg-white shadow-3xs">
+                      
+                      {/* Header Tabel Box */}
+                      <div className="border-b border-slate-200 bg-slate-100/70 text-[10px] font-black text-slate-500 uppercase tracking-wider shrink-0 px-4 py-3">
+                        <div className="grid grid-cols-12 gap-2">
+                          <div className="col-span-1 text-center">No</div>
+                          <div className="col-span-4">Nama Lengkap / NIS</div>
+                          <div className="col-span-2">NISN</div>
+                          <div className="col-span-2">NISM</div>
+                          <div className="col-span-2">Keanggotaan</div>
+                          <div className="col-span-1 text-center">Aksi</div>
+                        </div>
+                      </div>
+
+                      {/* Detail Anggota List Area */}
+                      <div className="flex-1 overflow-y-auto divide-y divide-slate-100 max-h-[360px] pr-1">
+                        {filteredStudents.length === 0 ? (
+                          <div className="py-16 text-center text-slate-400 font-medium italic text-xs">
+                            Belum ada santri terdaftar di kelas/kelompok ini.
+                          </div>
+                        ) : (
+                          filteredStudents.map((s, idx) => {
+                            const isNisnValid = s.nisn && s.nisn.trim() !== '';
+                            const isNismValid = s.nism && s.nism.trim() !== '';
+
+                            return (
+                              <div key={s.id} className="grid grid-cols-12 gap-2 px-4 py-3 items-center text-xs text-slate-700 font-semibold hover:bg-slate-50/40 transition-colors">
+                                {/* No */}
+                                <div className="col-span-1 text-center font-mono text-slate-400">
+                                  {idx + 1}
+                                </div>
+
+                                {/* Nama Lengkap with Avatar & NIS */}
+                                <div className="col-span-4 flex items-center gap-3 min-w-0">
+                                  {renderStudentAvatar(s)}
+                                  <div className="min-w-0">
+                                    <div
+                                      onClick={() => setSelectedSantriForDetail(s)}
+                                      className="font-extrabold text-slate-800 hover:text-emerald-700 hover:underline cursor-pointer transition-colors truncate"
+                                      title="Lihat Biodata Lengkap"
+                                    >
+                                      {s.nama}
+                                    </div>
+                                    <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                                      NIS: {s.nis || '-'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* NISN */}
+                                <div className="col-span-2 font-mono text-slate-600 truncate">
+                                  {s.nisn || <span className="text-slate-300">-</span>}
+                                </div>
+
+                                {/* NISM */}
+                                <div className="col-span-2 font-mono text-slate-600 truncate">
+                                  {s.nism || <span className="text-slate-300">-</span>}
+                                </div>
+
+                                {/* Keanggotaan & Verval (combining into clean tags) */}
+                                <div className="col-span-2 flex flex-col gap-1 items-start">
+                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold border ${
+                                    s.statusKeanggotaan === 'Aktif'
+                                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                      : 'bg-slate-50 border-slate-200 text-slate-500'
+                                  }`}>
+                                    {s.statusKeanggotaan}
+                                  </span>
+                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold border ${
+                                    isNisnValid
+                                      ? 'bg-blue-50 border-blue-200 text-blue-700'
+                                      : 'bg-rose-50 border-rose-200 text-rose-700'
+                                  }`}>
+                                    {isNisnValid ? 'Verified' : 'Proses'}
+                                  </span>
+                                </div>
+
+                                {/* Row Actions menu */}
+                                <div className="col-span-1 text-center">
+                                  {canWriteCurrent && (
+                                    <div className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
+                                      <button
+                                        onClick={() => setActiveActionStudentId(activeActionStudentId === s.id ? null : s.id)}
+                                        className="p-1 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                                        title="Opsi Aksi"
+                                      >
+                                        <MoreVertical className="h-4 w-4" />
+                                      </button>
+                                      
+                                      <AnimatePresence>
+                                        {activeActionStudentId === s.id && (
+                                          <>
+                                            <div className="fixed inset-0 z-35" onClick={() => setActiveActionStudentId(null)} />
+                                            <motion.div
+                                              initial={{ opacity: 0, scale: 0.95 }}
+                                              animate={{ opacity: 1, scale: 1 }}
+                                              exit={{ opacity: 0, scale: 0.95 }}
+                                              className="absolute right-0 mt-1 w-32 bg-white border border-slate-200 rounded-xl shadow-lg z-40 py-1 text-[11px] font-bold text-slate-700 text-left"
+                                            >
+                                              <button
+                                                onClick={() => {
+                                                  setSelectedSantriForDetail(s);
+                                                  setActiveActionStudentId(null);
+                                                }}
+                                                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-emerald-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                                              >
+                                                <UserCheck className="h-3.5 w-3.5" />
+                                                <span>Pilih</span>
+                                              </button>
+                                              <button
+                                                onClick={() => {
+                                                  setTransferStudent(s);
+                                                  setDestClassId('');
+                                                  setActiveActionStudentId(null);
+                                                }}
+                                                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-blue-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                                              >
+                                                <ArrowRightLeft className="h-3.5 w-3.5" />
+                                                <span>Pindah</span>
+                                              </button>
+                                              <button
+                                                onClick={() => {
+                                                  setActiveActionStudentId(null);
+                                                  handleRemoveStudentFromClass(s);
+                                                }}
+                                                className="w-full text-left px-3 py-1.5 hover:bg-rose-50 hover:text-rose-600 flex items-center gap-1.5 transition-colors cursor-pointer text-rose-600 border-t border-slate-50 mt-1"
+                                              >
+                                                <UserMinus className="h-3.5 w-3.5" />
+                                                <span>Keluarkan</span>
+                                              </button>
+                                            </motion.div>
+                                          </>
+                                        )}
+                                      </AnimatePresence>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+
+                    </div>
+
+                  </div>
+                )}
+              </div>
+
             </div>
           </motion.div>
         )}
@@ -933,7 +1338,7 @@ export default function LembagaKelasSub({
           4. MODALS (Popups)
           ========================================================================= */}
 
-      {/* A. LEMBAGA CREATE / EDIT MODAL */}
+      {/* A. LEMBAGA / KATEGORI CREATE / EDIT MODAL */}
       <AnimatePresence>
         {isLembagaModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-fade-in">
@@ -945,7 +1350,10 @@ export default function LembagaKelasSub({
             >
               <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                 <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
-                  {editingLembaga ? 'Edit Lembaga' : 'Buat Lembaga Baru'}
+                  {activeTab === 'Rombel' 
+                    ? (editingLembaga ? 'Edit Kategori Rombel' : 'Buat Kategori Rombel Baru')
+                    : (editingLembaga ? 'Edit Lembaga' : 'Buat Lembaga Baru')
+                  }
                 </h3>
                 <button
                   onClick={() => setIsLembagaModalOpen(false)}
@@ -958,67 +1366,97 @@ export default function LembagaKelasSub({
               <div className="p-5 space-y-5">
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                    Nama Lembaga
+                    {activeTab === 'Rombel' ? 'Nama Kategori Rombel' : 'Nama Lembaga'}
                   </label>
                   <input
                     type="text"
                     value={lemNama}
                     onChange={(e) => setLemNama(e.target.value)}
-                    placeholder="Contoh: Madrasah Aliyah"
+                    placeholder={activeTab === 'Rombel' ? "Contoh: Halaqah Tahfidz Qur'an" : "Contoh: Madrasah Aliyah"}
                     className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-emerald-500 outline-none font-semibold text-slate-700"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
-                    Logo Lembaga (Opsional)
-                  </label>
-                  <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                    {lemLogo ? (
-                      <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shrink-0 shadow-sm bg-white">
-                        <img src={lemLogo} alt="Logo preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        <button
-                          type="button"
-                          onClick={() => setLemLogo('')}
-                          className="absolute inset-0 bg-black/65 hover:bg-black/80 flex items-center justify-center text-white text-[10px] font-black tracking-wider transition-colors"
-                        >
-                          HAPUS
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center bg-white text-slate-300 shrink-0">
-                        <School className="h-6 w-6" />
-                      </div>
-                    )}
-                    <div className="flex-1">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onload = (evt) => {
-                              if (evt.target?.result) {
-                                setLemLogo(evt.target.result as string);
-                              }
-                            };
-                            reader.readAsDataURL(file);
-                          }
-                        }}
-                        className="hidden"
-                        id="logo-upload-input"
-                      />
-                      <label
-                        htmlFor="logo-upload-input"
-                        className="inline-block bg-white hover:bg-slate-100 text-slate-700 px-3 py-1.5 rounded-xl text-[10px] font-extrabold cursor-pointer transition-colors border border-slate-200 shadow-sm"
-                      >
-                        PILIH GAMBAR
-                      </label>
-                      <p className="text-[9px] text-slate-400 mt-1 font-medium">PNG, JPG, maks. 2MB</p>
-                    </div>
+                {activeTab === 'Rombel' ? (
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                      Deskripsi Kategori
+                    </label>
+                    <textarea
+                      value={lemDeskripsi}
+                      onChange={(e) => setLemDeskripsi(e.target.value)}
+                      placeholder="Tuliskan deskripsi singkat tujuan kelompok rombel ini..."
+                      rows={3}
+                      className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-emerald-500 outline-none font-medium text-slate-750"
+                    />
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                        Deskripsi Lembaga (Opsional)
+                      </label>
+                      <input
+                        type="text"
+                        value={lemDeskripsi}
+                        onChange={(e) => setLemDeskripsi(e.target.value)}
+                        placeholder="Contoh: Unit Satuan Pendidikan Menengah Formal"
+                        className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-emerald-500 outline-none font-semibold text-slate-700"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                        Logo Lembaga (Opsional)
+                      </label>
+                      <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                        {lemLogo ? (
+                          <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shrink-0 shadow-sm bg-white">
+                            <img src={lemLogo} alt="Logo preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            <button
+                              type="button"
+                              onClick={() => setLemLogo('')}
+                              className="absolute inset-0 bg-black/65 hover:bg-black/80 flex items-center justify-center text-white text-[10px] font-black tracking-wider transition-colors cursor-pointer"
+                            >
+                              HAPUS
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center bg-white text-slate-300 shrink-0">
+                            <School className="h-6 w-6" />
+                          </div>
+                        )}
+                        <div className="flex-1">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onload = (evt) => {
+                                  if (evt.target?.result) {
+                                    setLemLogo(evt.target.result as string);
+                                  }
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="hidden"
+                            id="logo-upload-input"
+                          />
+                          <label
+                            htmlFor="logo-upload-input"
+                            className="inline-block bg-white hover:bg-slate-100 text-slate-700 px-3 py-1.5 rounded-xl text-[10px] font-extrabold cursor-pointer transition-colors border border-slate-200 shadow-sm"
+                          >
+                            PILIH GAMBAR
+                          </label>
+                          <p className="text-[9px] text-slate-400 mt-1 font-medium">PNG, JPG, maks. 2MB</p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="p-5 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-2.5">
@@ -1043,10 +1481,10 @@ export default function LembagaKelasSub({
         )}
       </AnimatePresence>
 
-      {/* B. KELAS CREATE / EDIT MODAL */}
+      {/* B. KELAS / KELOMPOK CREATE / EDIT MODAL */}
       <AnimatePresence>
         {isKelasModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-fade-in">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1055,7 +1493,10 @@ export default function LembagaKelasSub({
             >
               <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                 <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
-                  {editingKelas ? 'Edit Kelas' : 'Tambah Kelas Baru'}
+                  {activeTab === 'Rombel'
+                    ? (editingKelas ? 'Edit Kelompok Rombel' : 'Tambah Kelompok Rombel Baru')
+                    : (editingKelas ? 'Edit Kelas' : 'Tambah Kelas Baru')
+                  }
                 </h3>
                 <button
                   onClick={() => setIsKelasModalOpen(false)}
@@ -1068,20 +1509,20 @@ export default function LembagaKelasSub({
               <div className="p-5 space-y-4">
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                    Nama Kelas
+                    {activeTab === 'Rombel' ? 'Nama Kelompok Rombel' : 'Nama Kelas'}
                   </label>
                   <input
                     type="text"
                     value={kelNama}
                     onChange={(e) => setKelNama(e.target.value)}
-                    placeholder="Contoh: Kelas 10-A"
+                    placeholder={activeTab === 'Rombel' ? "Contoh: Halaqah A-1" : "Contoh: Kelas 10-A"}
                     className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-emerald-500 outline-none font-semibold text-slate-700"
                   />
                 </div>
 
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                    Nama Wali Kelas
+                    {activeTab === 'Rombel' ? 'Nama Pembimbing / Guru' : 'Nama Wali Kelas'}
                   </label>
                   <input
                     type="text"
@@ -1093,31 +1534,33 @@ export default function LembagaKelasSub({
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      Tingkatan
-                    </label>
-                    <select
-                      value={kelTingkat}
-                      onChange={(e) => setKelTingkat(e.target.value as any)}
-                      className="w-full rounded-xl border border-slate-200 bg-white p-3.5 text-xs font-bold text-slate-600 focus:border-emerald-500 outline-none"
-                    >
-                      <option value="Ula">Ula</option>
-                      <option value="Wustho">Wustho</option>
-                      <option value="Ulya">Ulya</option>
-                      <option value="Lainnya">Lainnya</option>
-                    </select>
-                  </div>
+                  {activeTab !== 'Rombel' && (
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                        Tingkatan
+                      </label>
+                      <select
+                        value={kelTingkat}
+                        onChange={(e) => setKelTingkat(e.target.value as any)}
+                        className="w-full rounded-xl border border-slate-200 bg-white p-3.5 text-xs font-bold text-slate-600 focus:border-emerald-500 outline-none"
+                      >
+                        <option value="Ula">Ula</option>
+                        <option value="Wustho">Wustho</option>
+                        <option value="Ulya">Ulya</option>
+                        <option value="Lainnya">Lainnya</option>
+                      </select>
+                    </div>
+                  )}
 
-                  <div>
+                  <div className={activeTab === 'Rombel' ? "col-span-2" : ""}>
                     <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      Kapasitas Maksimal
+                      {activeTab === 'Rombel' ? 'Kuota Kelompok' : 'Kapasitas Maksimal'}
                     </label>
                     <input
                       type="number"
                       value={kelKapasitas}
                       onChange={(e) => setKelKapasitas(Number(e.target.value))}
-                      placeholder="40"
+                      placeholder="20"
                       className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-emerald-500 outline-none font-mono text-slate-700"
                     />
                   </div>
@@ -1146,7 +1589,154 @@ export default function LembagaKelasSub({
         )}
       </AnimatePresence>
 
-      {/* C. SANTRI DETAIL BIODATA MODAL */}
+      {/* C. PINDAH KELAS / TRANSFER STUDENT MODAL */}
+      <AnimatePresence>
+        {transferStudent && selectedKelas && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 animate-fade-in">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl border border-slate-100 shadow-xl max-w-sm w-full overflow-hidden"
+            >
+              <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                  Pindahkan Santri
+                </h3>
+                <button onClick={() => setTransferStudent(null)} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 text-xs font-medium text-slate-600">
+                <p>
+                  Pindahkan <strong className="text-slate-800 font-extrabold">{transferStudent.nama}</strong> dari kelas/kelompok <strong className="text-emerald-700 font-extrabold">"{selectedKelas.nama}"</strong> ke:
+                </p>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Pilih Kelas Tujuan</label>
+                  <select
+                    value={destClassId}
+                    onChange={(e) => setDestClassId(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-750 focus:border-emerald-500 outline-none cursor-pointer"
+                  >
+                    <option value="">-- Pilih Kelas --</option>
+                    {subClasses
+                      .filter(c => c.id !== selectedKelas.id)
+                      .map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.nama} ({c.waliKelas})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setTransferStudent(null)}
+                  className="px-3 py-1.5 border border-slate-250 text-slate-500 rounded-lg text-xs font-bold cursor-pointer"
+                >
+                  BATAL
+                </button>
+                <button
+                  onClick={handleExecuteTransfer}
+                  disabled={!destClassId}
+                  className="px-4.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold disabled:opacity-50 hover:bg-emerald-700 shadow-xs cursor-pointer"
+                >
+                  PINDAHKAN
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* D. TAMBAH ANGGOTA / MULTI ADD MEMBER MODAL */}
+      <AnimatePresence>
+        {isAddMemberModalOpen && selectedKelas && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-fade-in">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl border border-slate-100 shadow-xl max-w-md w-full overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                    Tambah Anggota
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-medium mt-0.5">Memasukkan santri ke dalam {selectedKelas.nama}</p>
+                </div>
+                <button onClick={() => setIsAddMemberModalOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Search Inside Add Member Modal */}
+              <div className="p-4 border-b border-slate-100 shrink-0 bg-white">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Cari nama santri eligible..."
+                    value={addMemberSearch}
+                    onChange={(e) => setAddMemberSearch(e.target.value)}
+                    className="w-full pl-9 pr-7 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/30 focus:border-emerald-500 focus:bg-white outline-none font-medium"
+                  />
+                  {addMemberSearch && (
+                    <button onClick={() => setAddMemberSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-450 hover:text-slate-600">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Scroll list of eligible candidates */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-[250px]">
+                {searchedEligibleStudents.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 text-xs italic">
+                    {addMemberSearch ? 'Tidak ada santri yang cocok.' : 'Semua santri yang eligible telah terdaftar di kelas/kelompok ini.'}
+                  </div>
+                ) : (
+                  searchedEligibleStudents.map(student => {
+                    return (
+                      <div key={student.id} className="p-2.5 rounded-xl border border-slate-100 bg-slate-50 hover:bg-slate-100/50 flex items-center justify-between gap-3 text-xs transition-colors">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {renderStudentAvatar(student)}
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-800 truncate">{student.nama}</p>
+                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">NIS: {student.nis || '-'} | Kamar: {student.kamar || '-'}</p>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleAddMember(student)}
+                          className="px-2.5 py-1 bg-emerald-600 text-white font-extrabold text-[10px] rounded-lg shadow-xs hover:bg-emerald-700 shrink-0 cursor-pointer"
+                        >
+                          TAMBAH
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0 flex justify-end">
+                <button
+                  onClick={() => setIsAddMemberModalOpen(false)}
+                  className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-extrabold rounded-lg text-xs cursor-pointer shadow-sm"
+                >
+                  SELESAI
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* E. SANTRI DETAIL BIODATA MODAL */}
       {selectedSantriForDetail && (
         <SantriDetailModal
           selectedSantri={selectedSantriForDetail}
