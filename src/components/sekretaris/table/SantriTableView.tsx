@@ -209,11 +209,28 @@ export default function SantriTableView({
 
     window.addEventListener('resize', handleResize, { passive: true });
     document.addEventListener('scroll', handleGlobalScroll, { capture: true, passive: true });
+
+    // Use ResizeObserver for high-precision, instant scroll status updates
+    let observer: ResizeObserver | null = null;
+    const container = containerRef.current;
+    if (container) {
+      observer = new ResizeObserver(() => {
+        updateScrollButtons();
+      });
+      observer.observe(container);
+      const table = container.querySelector('table');
+      if (table) {
+        observer.observe(table);
+      }
+    }
     
     return () => {
       clearTimeout(timer);
       window.removeEventListener('resize', handleResize);
       document.removeEventListener('scroll', handleGlobalScroll, { capture: true });
+      if (observer) {
+        observer.disconnect();
+      }
     };
   }, [paginatedSantri, visibleColumns, isSelectionMode]);
 
@@ -507,7 +524,7 @@ export default function SantriTableView({
             }`}
             title="Gulir Kiri"
           >
-            <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
+            <ChevronLeft className="h-4 w-4 stroke-[2.5] -translate-x-[0.5px]" />
           </button>
         )}
       </th>
@@ -611,7 +628,7 @@ export default function SantriTableView({
           }`}
           title="Gulir Kanan"
         >
-          <ChevronRight className="h-4 w-4 stroke-[2.5]" />
+          <ChevronRight className="h-4 w-4 stroke-[2.5] translate-x-[0.5px]" />
         </button>
       </>
     );

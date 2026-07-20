@@ -329,7 +329,30 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
     if (scrollSourceRef.current !== 'floating' && floatingHeaderRef.current && tableContainerRef.current && floatingHeaderRef.current.scrollLeft !== tableContainerRef.current.scrollLeft) {
       floatingHeaderRef.current.scrollLeft = tableContainerRef.current.scrollLeft;
     }
+    updateScrollButtons();
   }, [filteredSantri.length]);
+
+  // High-Precision ResizeObserver for scroll buttons
+  useEffect(() => {
+    let observer: ResizeObserver | null = null;
+    const container = tableContainerRef.current;
+    if (container) {
+      observer = new ResizeObserver(() => {
+        updateScrollButtons();
+      });
+      observer.observe(container);
+      const table = container.querySelector('table');
+      if (table) {
+        observer.observe(table);
+      }
+    }
+    updateScrollButtons();
+    return () => {
+      if (observer) {
+        observer.disconnect();
+      }
+    };
+  }, [filteredSantri.length, activeTab]);
 
   // 1. High-Performance Scroll Event Listener
   useEffect(() => {
@@ -451,7 +474,7 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
       </div>
 
       {/* Tabs navigation & Controls bar */}
-      <div className="bg-white border border-slate-100 rounded-2xl shadow-xs overflow-hidden">
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-xs overflow-visible">
         {/* Tab Header Selector - stretched to full width as requested */}
         <div className="flex border-b border-slate-100 bg-slate-50/50 p-2 gap-2 w-full">
           <button
@@ -722,7 +745,7 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
             }`}
             title="Gulir Kanan"
           >
-            <ChevronRight className="h-4 w-4 stroke-[2.5]" />
+            <ChevronRight className="h-4 w-4 stroke-[2.5] translate-x-[0.5px]" />
           </button>
 
           <div 
@@ -760,7 +783,7 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
                       }`}
                       title="Gulir Kiri"
                     >
-                      <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
+                      <ChevronLeft className="h-4 w-4 stroke-[2.5] -translate-x-[0.5px]" />
                     </button>
                   </th>
                   {currentColumns.map(col => {
@@ -933,7 +956,7 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
             }`}
             title="Gulir Kanan"
           >
-            <ChevronRight className="h-4 w-4 stroke-[2.5]" />
+            <ChevronRight className="h-4 w-4 stroke-[2.5] translate-x-[0.5px]" />
           </button>
 
           <div
@@ -988,7 +1011,7 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
                       }`}
                       title="Gulir Kiri"
                     >
-                      <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
+                      <ChevronLeft className="h-4 w-4 stroke-[2.5] -translate-x-[0.5px]" />
                     </button>
                   </th>
                   {currentColumns.map((col, idx) => {
