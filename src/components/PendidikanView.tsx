@@ -181,15 +181,39 @@ export default function PendidikanView({
         const kelData = await fetchTableData<Kelas>('kelas', 'smartsantri_kelas', INITIAL_KELAS);
         const uniqueKels = kelData.filter((item, idx, arr) => arr.findIndex(x => x.id === item.id) === idx);
 
-        let updatedKels = [...uniqueKels];
+        // De-duplicate "Calon Pelajar" immediately to prevent duplicate default classes
+        const seenCalonPelajarLembagas = new Set<string>();
+        const deDuplicatedKels: Kelas[] = [];
+        const duplicatesToDelete: string[] = [];
+
+        for (const k of uniqueKels) {
+          if (k.nama.toLowerCase() === 'calon pelajar') {
+            if (!seenCalonPelajarLembagas.has(k.lembagaId)) {
+              seenCalonPelajarLembagas.add(k.lembagaId);
+              deDuplicatedKels.push(k);
+            } else {
+              duplicatesToDelete.push(k.id);
+            }
+          } else {
+            deDuplicatedKels.push(k);
+          }
+        }
+
+        // Asynchronously delete duplicate Calon Pelajar classes from persistent storage
+        for (const dupId of duplicatesToDelete) {
+          console.log(`Self-healing: Deleting duplicate Calon Pelajar class with ID: ${dupId}`);
+          deleteTableRow('kelas', 'smartsantri_kelas', dupId);
+        }
+
+        let updatedKels = [...deDuplicatedKels];
         let hasHealed = false;
 
         for (const lem of uniqueLems) {
-          const hasDefaultClass = uniqueKels.some(k => k.lembagaId === lem.id && k.nama.toLowerCase() === 'calon pelajar');
+          const hasDefaultClass = deDuplicatedKels.some(k => k.lembagaId === lem.id && k.nama.toLowerCase() === 'calon pelajar');
           if (!hasDefaultClass) {
             console.log(`Self-healing: Creating missing default class 'Calon Pelajar' for lembaga ${lem.nama} (${lem.id})`);
             const defaultClassPayload: Kelas = {
-              id: 'K-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5) + '-default',
+              id: 'K-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7) + '-default',
               lembagaId: lem.id,
               nama: 'Calon Pelajar',
               waliKelas: '-',
@@ -296,6 +320,48 @@ export default function PendidikanView({
   const handleDeleteKelas = async (id: string) => {
     setKelasList(prev => prev.filter(c => c.id !== id));
     await deleteTableRow('kelas', 'smartsantri_kelas', id);
+  };
+
+  const handleResetAllClasses = async () => {
+    const keepClasses: Kelas[] = [];
+    const deleteIds: string[] = [];
+    
+    for (const lem of lembagasList) {
+      const lemClasses = kelasList.filter(k => k.lembagaId === lem.id);
+      const defaultClass = lemClasses.find(k => k.nama.toLowerCase() === 'calon pelajar');
+      
+      if (defaultClass) {
+        keepClasses.push(defaultClass);
+        lemClasses.forEach(k => {
+          if (k.id !== defaultClass.id) {
+            deleteIds.push(k.id);
+          }
+        });
+      } else {
+        const defaultClassPayload: Kelas = {
+          id: 'K-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7) + '-default',
+          lembagaId: lem.id,
+          nama: 'Calon Pelajar',
+          waliKelas: '-',
+          tingkatan: 'Lainnya',
+        };
+        try {
+          const saved = await insertTableRow('kelas', 'smartsantri_kelas', defaultClassPayload);
+          keepClasses.push(saved);
+        } catch (e) {
+          console.error('Error creating default class during reset:', e);
+        }
+      }
+    }
+    
+    const orphans = kelasList.filter(k => !lembagasList.some(l => l.id === k.lembagaId));
+    orphans.forEach(k => deleteIds.push(k.id));
+    
+    for (const id of deleteIds) {
+      await deleteTableRow('kelas', 'smartsantri_kelas', id);
+    }
+    
+    setKelasList(keepClasses);
   };
 
   // 3. ROMBEL CATEGORY CALLBACKS
@@ -1098,6 +1164,7 @@ export default function PendidikanView({
               onDeleteGroup={handleDeleteGroup}
               onAddAssignment={handleAddAssignment}
               onRemoveAssignment={handleRemoveAssignment}
+              onResetAllClasses={handleResetAllClasses}
             />
           )}
 

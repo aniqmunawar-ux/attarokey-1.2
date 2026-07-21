@@ -3982,7 +3982,7 @@ export default function KeamananView({
               KARTU CATATAN PELANGGARAN & DISIPLIN SANTRI
             </h3>
             <p style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin: 4px 0 0 0;">
-              Tahun Ajaran 2026/2027
+              Tahun Ajaran \${localStorage.getItem('smartsantri_active_tahun_ajaran') || '2026/2027'}
             </p>
           </div>
 
@@ -6599,7 +6599,7 @@ export default function KeamananView({
                         KARTU CATATAN PELANGGARAN & DISIPLIN SANTRI
                       </h3>
                       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
-                        Tahun Ajaran 2026/2027
+                        Tahun Ajaran {localStorage.getItem('smartsantri_active_tahun_ajaran') || '2026/2027'}
                       </p>
                     </div>
 
@@ -8236,7 +8236,7 @@ export default function KeamananView({
                     <input
                       type="text"
                       required
-                      placeholder="Contoh: Semester Ganjil 2026/2027"
+                      placeholder={`Contoh: Semester Ganjil ${localStorage.getItem('smartsantri_active_tahun_ajaran') || '2026/2027'}`}
                       value={newPeriodeNama}
                       onChange={(e) => setNewPeriodeNama(e.target.value)}
                       className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"

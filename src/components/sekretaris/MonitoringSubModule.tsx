@@ -738,14 +738,14 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
               scrollTable('right');
             }}
             disabled={!canScrollRight}
-            className={`absolute right-0 top-[22px] -translate-y-1/2 translate-x-1/2 z-25 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+            className={`absolute right-0 top-[22px] -translate-y-1/2 translate-x-1/2 z-25 p-0 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
               canScrollRight 
                 ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
                 : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
             }`}
             title="Gulir Kanan"
           >
-            <ChevronRight className="h-4 w-4 stroke-[2.5] translate-x-[0.5px]" />
+            <ChevronRight className="h-4 w-4 stroke-[2.5]" />
           </button>
 
           <div 
@@ -776,14 +776,14 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
                         scrollTable('left');
                       }}
                       disabled={!canScrollLeft}
-                      className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-[40] flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+                      className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-[40] p-0 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
                         canScrollLeft 
                           ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
                           : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
                       }`}
                       title="Gulir Kiri"
                     >
-                      <ChevronLeft className="h-4 w-4 stroke-[2.5] -translate-x-[0.5px]" />
+                      <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
                     </button>
                   </th>
                   {currentColumns.map(col => {
@@ -949,14 +949,14 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
               scrollTable('right');
             }}
             disabled={!canScrollRight}
-            className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-[48] flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+            className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-[48] p-0 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
               canScrollRight 
                 ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
                 : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
             }`}
             title="Gulir Kanan"
           >
-            <ChevronRight className="h-4 w-4 stroke-[2.5] translate-x-[0.5px]" />
+            <ChevronRight className="h-4 w-4 stroke-[2.5]" />
           </button>
 
           <div
@@ -1004,14 +1004,14 @@ export default function MonitoringSubModule({ santriList }: MonitoringSubModuleP
                         scrollTable('left');
                       }}
                       disabled={!canScrollLeft}
-                      className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-[40] flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+                      className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-[40] p-0 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
                         canScrollLeft 
                           ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
                           : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
                       }`}
                       title="Gulir Kiri"
                     >
-                      <ChevronLeft className="h-4 w-4 stroke-[2.5] -translate-x-[0.5px]" />
+                      <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
                     </button>
                   </th>
                   {currentColumns.map((col, idx) => {

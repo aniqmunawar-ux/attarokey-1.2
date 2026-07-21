@@ -41,7 +41,8 @@ import {
   History,
   Star,
   Clock,
-  Calendar
+  Calendar,
+  Plus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { camelToSnake, snakeToCamel, getSupabaseStatus, updateTableRow, insertTableRow, fetchTableData, deleteTableRow, uploadFileToStorage } from '../lib/api';
@@ -134,15 +135,15 @@ const formatBytes = (bytes: number) => {
 };
 
 interface PengaturanViewProps {
-  activeCategory?: 'akses' | 'profil' | 'database' | 'kelola_akun' | 'keamanan' | 'feedback';
-  setActiveCategory?: (category: 'akses' | 'profil' | 'database' | 'kelola_akun' | 'keamanan' | 'feedback') => void;
+  activeCategory?: 'akses' | 'profil' | 'database' | 'kelola_akun' | 'keamanan' | 'feedback' | 'tahun_ajaran';
+  setActiveCategory?: (category: 'akses' | 'profil' | 'database' | 'kelola_akun' | 'keamanan' | 'feedback' | 'tahun_ajaran') => void;
 }
 
 export default function PengaturanView({
   activeCategory: propCategory,
   setActiveCategory: propSetCategory,
 }: PengaturanViewProps = {}) {
-  const [localCategory, setLocalCategory] = useState<'akses' | 'profil' | 'database' | 'kelola_akun' | 'keamanan' | 'feedback'>('keamanan');
+  const [localCategory, setLocalCategory] = useState<'akses' | 'profil' | 'database' | 'kelola_akun' | 'keamanan' | 'feedback' | 'tahun_ajaran'>('keamanan');
   const activeCategory = propCategory || localCategory;
   const setActiveCategory = propSetCategory || setLocalCategory;
   const [previewTab, setPreviewTab] = useState<'kop' | 'kuitansi' | 'kartu'>('kop');
@@ -189,6 +190,35 @@ export default function PengaturanView({
   const [showToast, setShowToast] = useState<boolean>(false);
   const [showResetModal, setShowResetModal] = useState<boolean>(false);
   const [downloadingBackup, setDownloadingBackup] = useState<boolean>(false);
+
+  // Academic Year State
+  const [academicYears, setAcademicYears] = useState<(() => Array<{ id: string; name: string; isActive: boolean }>)>(() => {
+    const local = localStorage.getItem('smartsantri_academic_years');
+    if (local) {
+      try {
+        return JSON.parse(local);
+      } catch (e) {
+        // ignore
+      }
+    }
+    return [
+      { id: 'ta-1', name: '2025/2026', isActive: false },
+      { id: 'ta-2', name: '2026/2027', isActive: true },
+      { id: 'ta-3', name: '2027/2028', isActive: false }
+    ];
+  });
+
+  const [isTaModalOpen, setIsTaModalOpen] = useState(false);
+  const [taName, setTaName] = useState('');
+  const [editingTa, setEditingTa] = useState<{ id: string; name: string; isActive: boolean } | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('smartsantri_academic_years', JSON.stringify(academicYears));
+    const active = (academicYears as any).find?.((y: any) => y.isActive);
+    if (active) {
+      localStorage.setItem('smartsantri_active_tahun_ajaran', active.name);
+    }
+  }, [academicYears]);
 
   const [feedbacks, setFeedbacks] = useState<any[]>([]);
   const [loadingFeedbacks, setLoadingFeedbacks] = useState<boolean>(false);
@@ -1761,7 +1791,7 @@ export default function PengaturanView({
       </AnimatePresence>
 
       {/* Top Header Row with dynamic title and Save/Reset buttons */}
-      {activeCategory !== 'keamanan' && activeCategory !== 'kelola_akun' && activeCategory !== 'profil' && activeCategory !== 'database' && activeCategory !== 'feedback' && (
+      {activeCategory !== 'keamanan' && activeCategory !== 'kelola_akun' && activeCategory !== 'profil' && activeCategory !== 'database' && activeCategory !== 'feedback' && activeCategory !== 'tahun_ajaran' && (
         <div className="flex items-center justify-between border-b border-slate-200 pb-4">
           <h1 className="font-display text-2xl font-black text-slate-900">
             {activeCategory === 'akses' && 'Manajemen Hak Akses Admin'}
@@ -1769,6 +1799,7 @@ export default function PengaturanView({
             {activeCategory === 'database' && 'Database & Backup'}
             {activeCategory === 'kelola_akun' && 'Kelola Akun Pengguna'}
             {activeCategory === 'feedback' && 'Feedback & Masukan Pengurus'}
+            {activeCategory === 'tahun_ajaran' && 'Pengaturan Tahun Ajaran'}
           </h1>
           <div className="flex items-center gap-4">
             {activeCategory === 'akses' && (
@@ -1877,6 +1908,21 @@ export default function PengaturanView({
               >
                 <Megaphone className="h-4.5 w-4.5 text-purple-600" />
                 <span>Feedback & Masukan</span>
+              </button>
+            )}
+
+            {/* Tahun Ajaran (Superadmin only) */}
+            {activeRole === 'superadmin' && (
+              <button
+                onClick={() => setActiveCategory('tahun_ajaran')}
+                className={`flex w-full items-center gap-3 px-3.5 py-2.5 rounded-xl text-left font-display text-xs font-bold transition-all ${
+                  activeCategory === 'tahun_ajaran'
+                    ? 'bg-emerald-50 text-emerald-800'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                }`}
+              >
+                <Calendar className="h-4.5 w-4.5 text-blue-600" />
+                <span>Tahun Ajaran</span>
               </button>
             )}
 
@@ -2041,6 +2087,260 @@ export default function PengaturanView({
                 handleSave={handleSave}
                 hasChanges={hasChanges}
               />
+            )}
+
+            {/* Tahun Ajaran (Superadmin only) */}
+            {activeCategory === 'tahun_ajaran' && activeRole === 'superadmin' && (
+              <div className="space-y-6">
+                {/* Panel Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+                  <div>
+                    <h2 className="text-sm font-black text-slate-800 uppercase tracking-tight">Pengaturan Tahun Ajaran</h2>
+                    <p className="text-xs font-semibold text-slate-400 mt-1">
+                      Kelola beberapa tahun ajaran. Hanya satu tahun ajaran yang dapat diatur sebagai aktif.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setEditingTa(null);
+                      setTaName('');
+                      setIsTaModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md shadow-emerald-50 hover:shadow-lg transition-all cursor-pointer"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Tambah Tahun Ajaran
+                  </button>
+                </div>
+
+                {/* Grid Lists of Academic Years */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {(academicYears as any[]).map((ta) => (
+                    <div
+                      key={ta.id}
+                      className={`relative overflow-hidden bg-white rounded-3xl border p-6 flex flex-col justify-between min-h-[160px] transition-all ${
+                        ta.isActive
+                          ? 'border-emerald-500 shadow-md shadow-emerald-50 bg-emerald-50/10'
+                          : 'border-slate-150 hover:border-slate-350 shadow-3xs'
+                      }`}
+                    >
+                      {/* Active indicator top bar */}
+                      {ta.isActive && (
+                        <div className="absolute top-0 inset-x-0 h-1.5 bg-emerald-500" />
+                      )}
+
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className={`h-10 w-10 rounded-full flex items-center justify-center shrink-0 ${
+                            ta.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            <Calendar className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <span className="text-base font-black text-slate-800 tracking-tight block">
+                              {ta.name}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-400 block mt-0.5 uppercase tracking-wider">
+                              TAHUN AJARAN
+                            </span>
+                          </div>
+                        </div>
+
+                        {ta.isActive ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 shrink-0">
+                            <Check className="h-3 w-3" /> AKTIF
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-slate-100 text-slate-500 shrink-0">
+                            NONAKTIF
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Card Action Footer */}
+                      <div className="mt-6 flex items-center justify-between gap-3 pt-4 border-t border-slate-100/60">
+                        {!ta.isActive ? (
+                          <button
+                            onClick={() => {
+                              const updated = (academicYears as any[]).map(y => ({
+                                ...y,
+                                isActive: y.id === ta.id
+                              }));
+                              setAcademicYears(updated);
+                              setToastData({
+                                title: "Tahun Ajaran Diaktifkan",
+                                desc: `Tahun ajaran ${ta.name} kini berstatus aktif.`
+                              });
+                              setShowToast(true);
+                              setTimeout(() => setShowToast(false), 3000);
+                            }}
+                            className="text-[10px] font-black text-emerald-700 hover:text-emerald-800 uppercase tracking-wider cursor-pointer"
+                          >
+                            Set Aktif
+                          </button>
+                        ) : (
+                          <span className="text-[10px] font-bold text-slate-400 italic">
+                            Sedang Digunakan
+                          </span>
+                        )}
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              setEditingTa(ta);
+                              setTaName(ta.name);
+                              setIsTaModalOpen(true);
+                            }}
+                            className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors cursor-pointer"
+                            title="Edit nama"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          
+                          <button
+                            onClick={() => {
+                              if (ta.isActive) {
+                                alert("Tahun ajaran aktif tidak dapat dihapus!");
+                                return;
+                              }
+                              if (confirm(`Apakah Anda yakin ingin menghapus tahun ajaran ${ta.name}?`)) {
+                                const updated = (academicYears as any[]).filter(y => y.id !== ta.id);
+                                setAcademicYears(updated);
+                                setToastData({
+                                  title: "Berhasil Dihapus",
+                                  desc: `Tahun ajaran ${ta.name} berhasil dihapus.`
+                                });
+                                setShowToast(true);
+                                setTimeout(() => setShowToast(false), 3000);
+                              }
+                            }}
+                            className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                            title="Hapus"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Help instructions info card */}
+                <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-4 flex items-start gap-3 mt-4">
+                  <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
+                  <div className="text-xs text-blue-800 leading-relaxed font-semibold">
+                    <p className="font-bold uppercase tracking-wider text-[10px] text-blue-900 mb-1">Catatan Penting</p>
+                    Semua modul sistem seperti Keamanan, Keuangan, dan Kesiswaan akan secara otomatis menyesuaikan acuan data mereka berdasarkan Tahun Ajaran yang diatur sebagai aktif di panel ini.
+                  </div>
+                </div>
+
+                {/* Modal Tambah/Edit Tahun Ajaran */}
+                <AnimatePresence>
+                  {isTaModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                      {/* Backdrop */}
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setIsTaModalOpen(false)}
+                        className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+                      />
+
+                      {/* Modal Panel */}
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                        className="relative bg-white rounded-3xl border border-slate-100 shadow-xl max-w-sm w-full overflow-hidden z-10"
+                      >
+                        {/* Header */}
+                        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                            {editingTa ? 'Edit Tahun Ajaran' : 'Tambah Tahun Ajaran Baru'}
+                          </h3>
+                          <button
+                            onClick={() => setIsTaModalOpen(false)}
+                            className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-5 space-y-4">
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                              Nama Tahun Ajaran
+                            </label>
+                            <input
+                              type="text"
+                              value={taName}
+                              onChange={(e) => setTaName(e.target.value)}
+                              placeholder="Contoh: 2026/2027"
+                              className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-emerald-500 outline-none font-semibold text-slate-700 font-mono"
+                              autoFocus
+                            />
+                            <p className="text-[9px] text-slate-400 mt-1.5 font-medium">
+                              Gunakan format standar seperti YYYY/YYYY (contoh: 2026/2027).
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-5 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-2.5">
+                          <button
+                            type="button"
+                            onClick={() => setIsTaModalOpen(false)}
+                            className="px-4 py-2 border border-slate-200 text-slate-500 hover:bg-slate-100 rounded-xl text-xs font-bold cursor-pointer"
+                          >
+                            BATAL
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!taName.trim()}
+                            onClick={() => {
+                              if (editingTa) {
+                                // Edit
+                                const updated = (academicYears as any[]).map(y => {
+                                  if (y.id === (editingTa as any).id) {
+                                    return { ...y, name: taName };
+                                  }
+                                  return y;
+                                });
+                                setAcademicYears(updated);
+                                setToastData({
+                                  title: "Tahun Ajaran Diperbarui",
+                                  desc: `Tahun ajaran berhasil diubah menjadi ${taName}.`
+                                });
+                              } else {
+                                // Add
+                                const newId = `ta-${Date.now()}`;
+                                const newTa = {
+                                  id: newId,
+                                  name: taName,
+                                  isActive: (academicYears as any[]).length === 0 // Active if first
+                                };
+                                setAcademicYears([...(academicYears as any[]), newTa]);
+                                setToastData({
+                                  title: "Berhasil Ditambahkan",
+                                  desc: `Tahun ajaran ${taName} berhasil dibuat.`
+                                });
+                              }
+                              setIsTaModalOpen(false);
+                              setShowToast(true);
+                              setTimeout(() => setShowToast(false), 3000);
+                            }}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+                          >
+                            SIMPAN
+                          </button>
+                        </div>
+                      </motion.div>
+                    </div>
+                  )}
+                </AnimatePresence>
+              </div>
             )}
 
             {/* Kelola Akun Pengguna View */}

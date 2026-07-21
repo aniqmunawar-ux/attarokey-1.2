@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  School, Plus, Trash2, Edit, Users, BookOpen, ChevronRight, 
+  School, Plus, Trash2, Edit, Users, BookOpen, ChevronRight, ChevronLeft,
   ArrowLeft, Search, GraduationCap, ArrowLeftRight, Check, CheckCircle2, 
-  UserCheck, AlertCircle, X, MoreVertical, Award, ShieldAlert, UserMinus, ArrowRightLeft
+  UserCheck, AlertCircle, X, MoreVertical, Award, ShieldAlert, UserMinus, ArrowRightLeft,
+  Folder, FolderOpen, User, ArrowUpDown, Pencil, Settings, UserPlus, ArrowUp, ArrowDown
 } from 'lucide-react';
 import { Lembaga, Kelas, Santri, KategoriRombel, KelompokRombel, RombelAssignment } from '../../types';
 import SantriDetailModal from '../sekretaris/SantriDetailModal';
-import { PUTRA_AVATAR, PUTRI_AVATAR } from '../SekretarisHelper';
+import { PUTRA_AVATAR, PUTRI_AVATAR, renderSantriAvatar } from '../SekretarisHelper';
 
 interface LembagaKelasSubProps {
   lembagasList: Lembaga[];
@@ -41,6 +42,7 @@ interface LembagaKelasSubProps {
   onDeleteGroup?: (id: string) => any;
   onAddAssignment?: (newAss: RombelAssignment) => any;
   onRemoveAssignment?: (santriId: string, kelompokId: string) => any;
+  onResetAllClasses?: () => any;
 }
 
 export default function LembagaKelasSub({
@@ -74,7 +76,8 @@ export default function LembagaKelasSub({
   onUpdateGroup,
   onDeleteGroup,
   onAddAssignment,
-  onRemoveAssignment
+  onRemoveAssignment,
+  onResetAllClasses
 }: LembagaKelasSubProps) {
 
   // --- Core State ---
@@ -88,6 +91,130 @@ export default function LembagaKelasSub({
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [activeActionStudentId, setActiveActionStudentId] = useState<string | null>(null);
+  const [activeActionKelasId, setActiveActionKelasId] = useState<string | null>(null);
+  const [kelasDropdownPos, setKelasDropdownPos] = useState<{ top: number; left: number } | null>(null);
+  const [studentDropdownPos, setStudentDropdownPos] = useState<{ top: number; left: number } | null>(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [isBulkTransferOpen, setIsBulkTransferOpen] = useState(false);
+  const [bulkDestClassId, setBulkDestClassId] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  
+  // Sorting states
+  const [sortField, setSortField] = useState<'nama' | 'nis' | 'nisn' | 'nism' | 'statusKeanggotaan' | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  // Scroll & Table navigation states
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [isScrollable, setIsScrollable] = useState(false);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  const updateScrollButtons = () => {
+    const container = tableContainerRef.current;
+    if (container) {
+      const { scrollLeft, scrollWidth, clientWidth } = container;
+      const hasHorizontalScroll = scrollWidth > clientWidth + 4;
+      setIsScrollable(hasHorizontalScroll);
+      setCanScrollLeft(hasHorizontalScroll && scrollLeft > 2);
+      setCanScrollRight(hasHorizontalScroll && scrollLeft + clientWidth < scrollWidth - 2);
+    }
+  };
+
+  const handleTableScroll = () => {
+    updateScrollButtons();
+  };
+
+  const scrollTable = (direction: 'left' | 'right') => {
+    const container = tableContainerRef.current;
+    if (container) {
+      const scrollAmount = 200;
+      const targetScroll = direction === 'left' 
+        ? container.scrollLeft - scrollAmount 
+        : container.scrollLeft + scrollAmount;
+      
+      container.scrollTo({
+        left: targetScroll,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  // Class Delete Confirmation state
+  const [classToDelete, setClassToDelete] = useState<{ id: string; name: string } | null>(null);
+
+  // Batas Usia states for Calon Pelajar
+  const [kelBatasUsiaHari, setKelBatasUsiaHari] = useState<number>(1);
+  const [kelBatasUsiaBulan, setKelBatasUsiaBulan] = useState<number>(7);
+  const [kelBatasUsiaUmurMin, setKelBatasUsiaUmurMin] = useState<number>(7);
+
+  const getMonthName = (monthNum: number): string => {
+    const months = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    return months[monthNum - 1] || '';
+  };
+
+  const calculateAgeAsOfReference = (birthDateStr?: string, refDay?: number, refMonth?: number): number | null => {
+    if (!birthDateStr) return null;
+    let birthDate: Date;
+    try {
+      if (birthDateStr.includes('-')) {
+        const parts = birthDateStr.split('-');
+        if (parts[0].length === 4) {
+          birthDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        } else {
+          birthDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+        }
+      } else {
+        birthDate = new Date(birthDateStr);
+      }
+      if (isNaN(birthDate.getTime())) return null;
+      const currentYear = new Date().getFullYear();
+      const targetDay = refDay || 1;
+      const targetMonth = (refMonth || 7) - 1;
+      const referenceDate = new Date(currentYear, targetMonth, targetDay);
+      let age = referenceDate.getFullYear() - birthDate.getFullYear();
+      const m = referenceDate.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && referenceDate.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      return age;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const handleSort = (field: 'nama' | 'nis' | 'nisn' | 'nism' | 'statusKeanggotaan') => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const renderSortableHeader = (label: string, field: 'nama' | 'nis' | 'nisn' | 'nism' | 'statusKeanggotaan', colSpan: string, justify: string = 'justify-start') => {
+    const isSorted = sortField === field;
+    return (
+      <div 
+        onClick={() => handleSort(field)} 
+        className={`${colSpan} flex items-center gap-1.5 cursor-pointer hover:bg-slate-100 transition-colors select-none ${justify}`}
+      >
+        <span className="text-slate-400">{label}</span>
+        {isSorted ? (
+          sortDirection === 'asc' ? (
+            <ArrowUp className="h-3 w-3 text-[#00693E] font-bold shrink-0" />
+          ) : (
+            <ArrowDown className="h-3 w-3 text-[#00693E] font-bold shrink-0" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3 w-3 text-slate-300 hover:text-slate-500 shrink-0" />
+        )}
+      </div>
+    );
+  };
   
   // Modal Trigger States
   const [selectedSantriForDetail, setSelectedSantriForDetail] = useState<Santri | null>(null);
@@ -140,6 +267,35 @@ export default function LembagaKelasSub({
       setSelectedKelas(null);
     }
   }, [initialTab]);
+
+  // Sync scroll buttons status on data or view change
+  useEffect(() => {
+    updateScrollButtons();
+    window.addEventListener('resize', updateScrollButtons);
+    // A small timeout helps catch DOM rendering shifts
+    const t = setTimeout(updateScrollButtons, 200);
+    return () => {
+      window.removeEventListener('resize', updateScrollButtons);
+      clearTimeout(t);
+    };
+  }, [selectedKelas, currentPage, searchQuery]);
+
+  // Close fixed floating dropdowns on scroll or resize anywhere
+  useEffect(() => {
+    const handleCloseDropdowns = () => {
+      setActiveActionKelasId(null);
+      setKelasDropdownPos(null);
+      setActiveActionStudentId(null);
+      setStudentDropdownPos(null);
+    };
+
+    window.addEventListener('scroll', handleCloseDropdowns, true);
+    window.addEventListener('resize', handleCloseDropdowns, true);
+    return () => {
+      window.removeEventListener('scroll', handleCloseDropdowns, true);
+      window.removeEventListener('resize', handleCloseDropdowns, true);
+    };
+  }, []);
 
   // Sync tab change
   const handleTabChange = (tab: 'Formal' | 'Internal' | 'Rombel') => {
@@ -295,7 +451,7 @@ export default function LembagaKelasSub({
   const currentClassStudents = getStudentsInSelectedClass();
 
   // Filtered students by search query
-  const filteredStudents = currentClassStudents.filter(s => {
+  const searchedStudents = currentClassStudents.filter(s => {
     const q = searchQuery.toLowerCase();
     return (
       s.nama.toLowerCase().includes(q) ||
@@ -303,6 +459,27 @@ export default function LembagaKelasSub({
       (s.nisn && s.nisn.toLowerCase().includes(q)) ||
       (s.nism && s.nism.toLowerCase().includes(q))
     );
+  });
+
+  // Sort and filter students
+  const filteredStudents = [...searchedStudents].sort((a, b) => {
+    if (!sortField) return 0;
+    
+    let valA = a[sortField] || '';
+    let valB = b[sortField] || '';
+    
+    if (sortField === 'statusKeanggotaan') {
+      valA = a.statusKeanggotaan || '';
+      valB = b.statusKeanggotaan || '';
+    }
+
+    if (typeof valA === 'string' && typeof valB === 'string') {
+      return sortDirection === 'asc'
+        ? valA.localeCompare(valB, 'id', { sensitivity: 'base', numeric: true })
+        : valB.localeCompare(valA, 'id', { sensitivity: 'base', numeric: true });
+    }
+    
+    return 0;
   });
 
   // --- Automatical Selection of Topmost Class ---
@@ -324,6 +501,12 @@ export default function LembagaKelasSub({
     setSearchQuery('');
     setActiveActionStudentId(null);
   }, [selectedLembaga, activeTab]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setSortField(null);
+    setSortDirection('asc');
+  }, [selectedKelas]);
 
   // --- CRUD Handlers ---
   const handleOpenLembagaModal = (lem: any = null) => {
@@ -467,12 +650,18 @@ export default function LembagaKelasSub({
       setKelWali(kel.waliKelas || '');
       setKelTingkat(kel.tingkatan as any || 'Lainnya');
       setKelKapasitas(kel.kapasitas || 40);
+      setKelBatasUsiaHari(kel.batasUsiaHari || 1);
+      setKelBatasUsiaBulan(kel.batasUsiaBulan || 7);
+      setKelBatasUsiaUmurMin(kel.batasUsiaUmurMin || 7);
     } else {
       setEditingKelas(null);
       setKelNama('');
       setKelWali('');
       setKelTingkat('Lainnya');
       setKelKapasitas(40);
+      setKelBatasUsiaHari(1);
+      setKelBatasUsiaBulan(7);
+      setKelBatasUsiaUmurMin(7);
     }
     setIsKelasModalOpen(true);
   };
@@ -519,7 +708,10 @@ export default function LembagaKelasSub({
           nama: kelNama.trim(),
           waliKelas: kelWali.trim() || '-',
           tingkatan: kelTingkat,
-          kapasitas: Number(kelKapasitas)
+          kapasitas: Number(kelKapasitas),
+          batasUsiaHari: Number(kelBatasUsiaHari),
+          batasUsiaBulan: Number(kelBatasUsiaBulan),
+          batasUsiaUmurMin: Number(kelBatasUsiaUmurMin)
         });
         showToast('Kelas berhasil diperbarui.');
         if (selectedKelas?.id === editingKelas.id) {
@@ -528,7 +720,10 @@ export default function LembagaKelasSub({
             nama: kelNama.trim(),
             waliKelas: kelWali.trim() || '-',
             tingkatan: kelTingkat,
-            kapasitas: Number(kelKapasitas)
+            kapasitas: Number(kelKapasitas),
+            batasUsiaHari: Number(kelBatasUsiaHari),
+            batasUsiaBulan: Number(kelBatasUsiaBulan),
+            batasUsiaUmurMin: Number(kelBatasUsiaUmurMin)
           });
         }
       } else {
@@ -552,21 +747,7 @@ export default function LembagaKelasSub({
       alert('Kelas ini adalah kelas wajib bawaan lembaga dan tidak dapat dihapus.');
       return;
     }
-    const label = activeTab === 'Rombel' ? 'kelompok rombel' : 'kelas';
-    if (confirm(`Apakah Anda yakin ingin menghapus ${label} "${name}"?`)) {
-      if (activeTab === 'Rombel') {
-        if (onDeleteGroup) {
-          onDeleteGroup(id);
-          showToast('Kelompok rombel berhasil dihapus.');
-        }
-      } else {
-        onDeleteKelas(id);
-        showToast('Kelas berhasil dihapus.');
-      }
-      if (selectedKelas?.id === id) {
-        setSelectedKelas(null);
-      }
-    }
+    setClassToDelete({ id, name });
   };
 
   // --- Student Assignment Actions ---
@@ -606,6 +787,12 @@ export default function LembagaKelasSub({
     } else {
       const destClassObj = subClasses.find(c => c.id === destClassId);
       if (destClassObj) {
+        if (selectedLembaga.jenis === 'Formal' && destClassObj.nama.toLowerCase() !== 'calon pelajar') {
+          if (transferStudent.statusEmis !== 'Terdaftar') {
+            alert(`Maaf, ${transferStudent.nama} tidak dapat dimasukkan ke kelas formal "${destClassObj.nama}" karena status EMIS belum Terdaftar.`);
+            return;
+          }
+        }
         onUpdateSantriClass(transferStudent.id, destClassObj.nama, selectedLembaga.id);
         showToast(`${transferStudent.nama} dipindahkan ke kelas ${destClassObj.nama}.`);
       }
@@ -662,6 +849,12 @@ export default function LembagaKelasSub({
         showToast(`${student.nama} ditambahkan ke kelompok.`);
       }
     } else {
+      if (selectedLembaga.jenis === 'Formal' && selectedKelas.nama.toLowerCase() !== 'calon pelajar') {
+        if (student.statusEmis !== 'Terdaftar') {
+          alert(`Maaf, ${student.nama} tidak dapat dimasukkan ke kelas formal "${selectedKelas.nama}" karena status EMIS belum Terdaftar.`);
+          return;
+        }
+      }
       onUpdateSantriClass(student.id, selectedKelas.nama, selectedLembaga.id);
       showToast(`${student.nama} dimasukkan ke kelas ${selectedKelas.nama}.`);
     }
@@ -669,16 +862,7 @@ export default function LembagaKelasSub({
 
   // Render Student table avatars safely
   const renderStudentAvatar = (s: Santri) => {
-    const fallback = s.gender === 'Putri' ? PUTRI_AVATAR : PUTRA_AVATAR;
-    const src = s.filePasFoto && s.filePasFoto.trim() !== '' ? s.filePasFoto : fallback;
-    return (
-      <img 
-        src={src} 
-        alt={s.nama} 
-        className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0 shadow-xs"
-        referrerPolicy="no-referrer"
-      />
-    );
+    return renderSantriAvatar(s, "w-10 h-10 text-xs font-black");
   };
 
   const canWriteCurrent = selectedGender === 'Putra' ? canWritePutra : canWritePutri;
@@ -688,6 +872,132 @@ export default function LembagaKelasSub({
   const verifiedCount = currentClassStudents.filter(s => s.nisn && s.nisn.trim() !== '').length;
   const pendingCount = totalStudents - verifiedCount;
   const verifiedPercent = totalStudents > 0 ? Math.round((verifiedCount / totalStudents) * 100) : 0;
+
+  // Pagination & Students logic calculated at component root for consistent sharing
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(filteredStudents.length / itemsPerPage) || 1;
+  const activePage = Math.min(currentPage, totalPages);
+  const startIndex = (activePage - 1) * itemsPerPage;
+  const paginatedStudents = filteredStudents.slice(startIndex, startIndex + itemsPerPage);
+
+  // Toggle selection for individual student
+  const handleToggleStudentSelection = (studentId: string) => {
+    setSelectedStudentIds(prev => {
+      const isSelected = prev.includes(studentId);
+      const newSelected = isSelected
+        ? prev.filter(id => id !== studentId)
+        : [...prev, studentId];
+      if (newSelected.length === 0) {
+        setIsSelectionMode(false);
+      }
+      return newSelected;
+    });
+  };
+
+  const handleRowClick = (e: React.MouseEvent, s: Santri) => {
+    if (!isSelectionMode) return;
+
+    const target = e.target as HTMLElement;
+    if (
+      target.closest('button') || 
+      target.closest('input') || 
+      target.closest('select') || 
+      target.closest('a') ||
+      target.closest('.relative.inline-block') ||
+      (target.classList.contains('cursor-pointer') && target.tagName === 'SPAN')
+    ) {
+      return;
+    }
+
+    handleToggleStudentSelection(s.id);
+  };
+
+  // Bulk remove students handler
+  const handleBulkRemoveStudents = () => {
+    if (selectedStudentIds.length === 0) {
+      alert("Silakan pilih minimal 1 santri.");
+      return;
+    }
+    const count = selectedStudentIds.length;
+    const label = activeTab === 'Rombel' ? 'kelompok rombel' : 'kelas';
+    if (confirm(`Apakah Anda yakin ingin mengeluarkan ${count} santri terpilih dari ${label} ini?`)) {
+      if (activeTab === 'Rombel') {
+        if (onRemoveAssignment && selectedKelas) {
+          selectedStudentIds.forEach(id => {
+            onRemoveAssignment(id, selectedKelas.id);
+          });
+          showToast(`${count} santri berhasil dikeluarkan dari kelompok.`);
+        }
+      } else {
+        selectedStudentIds.forEach(id => {
+          onUpdateSantriClass(id, 'Calon Pelajar', selectedLembaga.id);
+        });
+        showToast(`${count} santri berhasil dikeluarkan dari kelas.`);
+      }
+      setSelectedStudentIds([]);
+      setIsSelectionMode(false);
+    }
+  };
+
+  // Bulk transfer student execution
+  const handleExecuteBulkTransfer = () => {
+    if (!bulkDestClassId || !selectedKelas) return;
+
+    const selectedStudents = santriList.filter(s => selectedStudentIds.includes(s.id));
+    
+    if (activeTab === 'Rombel') {
+      if (onRemoveAssignment && onAddAssignment) {
+        selectedStudents.forEach(s => {
+          onRemoveAssignment(s.id, selectedKelas.id);
+          onAddAssignment({
+            id: 'RA-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+            santriId: s.id,
+            kelompokId: bulkDestClassId,
+            kategoriId: selectedLembaga.id
+          });
+        });
+        showToast(`${selectedStudents.length} santri berhasil dipindahkan.`);
+      }
+    } else {
+      const destClassObj = subClasses.find(c => c.id === bulkDestClassId);
+      if (destClassObj) {
+        // Validation: If destination class is formal and NOT "Calon Pelajar"
+        if (selectedLembaga.jenis === 'Formal' && destClassObj.nama.toLowerCase() !== 'calon pelajar') {
+          const invalidStudents = selectedStudents.filter(s => s.statusEmis !== 'Terdaftar');
+          if (invalidStudents.length > 0) {
+            const names = invalidStudents.map(s => s.nama).join(', ');
+            alert(`Maaf, beberapa santri berikut tidak dapat dipindahkan karena status EMIS belum Terdaftar: ${names}`);
+            const validStudents = selectedStudents.filter(s => s.statusEmis === 'Terdaftar');
+            if (validStudents.length === 0) return;
+            
+            if (confirm(`Apakah Anda ingin melanjutkan pemindahan untuk ${validStudents.length} santri yang sudah terdaftar?`)) {
+              validStudents.forEach(s => {
+                onUpdateSantriClass(s.id, destClassObj.nama, selectedLembaga.id);
+              });
+              showToast(`${validStudents.length} santri berhasil dipindahkan ke kelas ${destClassObj.nama}.`);
+            } else {
+              return;
+            }
+          } else {
+            selectedStudents.forEach(s => {
+              onUpdateSantriClass(s.id, destClassObj.nama, selectedLembaga.id);
+            });
+            showToast(`${selectedStudents.length} santri berhasil dipindahkan ke kelas ${destClassObj.nama}.`);
+          }
+        } else {
+          selectedStudents.forEach(s => {
+            onUpdateSantriClass(s.id, destClassObj.nama, selectedLembaga.id);
+          });
+          showToast(`${selectedStudents.length} santri berhasil dipindahkan ke kelas ${destClassObj.nama}.`);
+        }
+      }
+    }
+    
+    setSelectedStudentIds([]);
+    setIsSelectionMode(false);
+    setIsBulkTransferOpen(false);
+    setBulkDestClassId('');
+  };
 
   return (
     <div className="space-y-6">
@@ -934,35 +1244,41 @@ export default function LembagaKelasSub({
             )}
           </motion.div>
         ) : (
-                 /* 3. WIDESCREEN 30/70 SPLIT LAYOUT (Halaman tampilan luas yang memanfaatkan seluruh lebar layar) */
+                  /* 3. WIDESCREEN 30/70 SPLIT LAYOUT (Halaman tampilan luas yang memanfaatkan seluruh lebar layar) */
           <motion.div
             key="split-view-container"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="bg-white border border-slate-200 rounded-[2rem] p-6 shadow-xs animate-fade-in"
+            className="bg-slate-50/50 rounded-2xl p-0 border-none shadow-none animate-fade-in"
           >
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch min-h-[580px]">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
               
-              {/* LEFT COLUMN (30% Width - col-span-4) - Styled as a beautiful nested card inside the master wrapper */}
-              <div className="lg:col-span-4 bg-slate-50/70 border border-slate-200/60 rounded-3xl p-5 flex flex-col relative min-h-[580px] overflow-hidden">
+              {/* LEFT COLUMN (30% Width - col-span-4) - Styled as a beautiful high-contrast card with fixed desktop height */}
+              <div className="lg:col-span-4 bg-white border border-slate-100 rounded-2xl px-5 py-6 flex flex-col relative lg:h-[680px] min-h-[500px] shadow-xs overflow-hidden">
                 
                 {/* Top-Left Back Button */}
                 <button
+                  disabled={isSelectionMode}
                   onClick={() => {
+                    if (isSelectionMode) return;
                     setSelectedLembaga(null);
                     setSelectedKelas(null);
                   }}
-                  className="absolute top-4 left-4 w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center bg-white hover:bg-slate-50 transition-all cursor-pointer shadow-3xs"
+                  className={`absolute top-4 left-4 w-9 h-9 rounded-full border border-slate-100 flex items-center justify-center bg-white transition-all shrink-0 ${
+                    isSelectionMode 
+                      ? 'opacity-40 cursor-not-allowed text-slate-300' 
+                      : 'hover:bg-slate-50 cursor-pointer text-slate-500 shadow-3xs'
+                  }`}
                   title="Kembali ke Daftar Unit"
                 >
-                  <ArrowLeft className="h-4.5 w-4.5 text-slate-600" />
+                  <ArrowLeft className="h-4.5 w-4.5 text-slate-500" />
                 </button>
 
                 {/* Center Logo & Name Header */}
-                <div className="flex flex-col items-center text-center mt-5 mb-5">
-                  {/* Circle Logo Container (No Outline) */}
-                  <div className="w-24 h-24 rounded-full overflow-hidden flex items-center justify-center bg-emerald-50 mb-3 shadow-3xs">
+                <div className="flex flex-col items-center text-center mt-7 mb-5 shrink-0">
+                  {/* Circle Logo (No Outline) */}
+                  <div className="w-24 h-24 rounded-full overflow-hidden bg-slate-50 flex items-center justify-center mb-4 shadow-3xs">
                     {selectedLembaga.logo ? (
                       <img 
                         src={selectedLembaga.logo} 
@@ -978,39 +1294,49 @@ export default function LembagaKelasSub({
                   </div>
 
                   {/* Institution Name */}
-                  <h2 className="text-xl font-black text-slate-800 tracking-tight leading-tight uppercase px-4 truncate w-full">
+                  <h2 className="text-xl font-black text-slate-800 tracking-tight leading-tight uppercase px-2 truncate w-full">
                     {selectedLembaga.nama}
                   </h2>
                   
                   {/* Stats */}
-                  <p className="text-xs font-bold text-slate-500 mt-1.5 uppercase tracking-wide">
+                  <p className="text-[11px] font-extrabold text-slate-400 mt-1 uppercase tracking-wider">
                     {subClasses.length} {activeTab === 'Rombel' ? 'Kelompok' : 'Kelas'} &bull; {institutions.find(x => x.id === selectedLembaga.id)?.studentsCount || 0} Santri
                   </p>
                 </div>
 
-                {/* Nested Daftar Kelas Panel - Adjusted to full-width matching the parent card */}
-                <div className="flex-1 bg-white/70 border-t border-slate-200/60 -mx-5 -mb-5 p-5 rounded-b-3xl flex flex-col min-h-[300px]">
-                  {/* Centered Title */}
-                  <div className="text-center pb-3 border-b border-slate-200/50 mb-4.5 flex items-center justify-between">
-                    <div className="w-6" /> {/* spacer for balance */}
-                    <span className="text-xs font-black text-slate-600 uppercase tracking-wider">
+                {/* Thin horizontal divider line */}
+                <div className="border-t border-slate-100/80 my-4 w-full shrink-0" />
+
+                {/* Daftar Kelas Panel */}
+                <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                  {/* Centered Title with Plus button */}
+                  <div className="flex items-center justify-between mb-4.5 px-1 shrink-0">
+                    <span className="text-xs font-black text-slate-400 uppercase tracking-wider">
                       Daftar {activeTab === 'Rombel' ? 'Rombel' : 'Kelas'}
                     </span>
-                    {canWriteCurrent ? (
-                      <button
-                        onClick={() => handleOpenKelasModal()}
-                        className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white p-1 rounded-lg text-[10px] font-bold transition-all hover:scale-105 cursor-pointer shadow-xs"
-                        title={activeTab === 'Rombel' ? 'Tambah Kelompok Rombel' : 'Tambah Kelas'}
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
-                    ) : (
-                      <div className="w-6" />
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {canWriteCurrent && (
+                        <button
+                          disabled={isSelectionMode}
+                          onClick={() => {
+                            if (isSelectionMode) return;
+                            handleOpenKelasModal();
+                          }}
+                          className={`w-8 h-8 rounded-lg bg-[#00693E] text-white flex items-center justify-center transition-all shrink-0 ${
+                            isSelectionMode 
+                              ? 'opacity-40 cursor-not-allowed' 
+                              : 'hover:bg-emerald-800 hover:scale-105 cursor-pointer shadow-xs'
+                          }`}
+                          title={activeTab === 'Rombel' ? 'Tambah Kelompok Rombel' : 'Tambah Kelas'}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Scrollable list */}
-                  <div className="flex-1 overflow-y-auto space-y-2.5 max-h-[380px] pr-1 scrollbar-thin">
+                  <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
                     {subClasses.length === 0 ? (
                       <div className="text-center py-10 text-slate-400 text-xs font-medium italic">
                         Belum ada {activeTab === 'Rombel' ? 'kelompok' : 'kelas'} terdaftar.
@@ -1023,57 +1349,71 @@ export default function LembagaKelasSub({
                         return (
                           <div
                             key={c.id}
-                            onClick={() => setSelectedKelas(c)}
-                            className={`group p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between relative select-none ${
+                            onClick={() => {
+                              if (isSelectionMode) return;
+                              setSelectedKelas(c);
+                            }}
+                            className={`group p-4 rounded-2xl transition-all flex items-center justify-between relative select-none ${
+                              isSelectionMode
+                                ? 'opacity-50 cursor-not-allowed'
+                                : 'cursor-pointer'
+                            } ${
                               isSelected 
-                                ? 'bg-emerald-600 border-emerald-600 text-white shadow-md' 
-                                : 'bg-white border-slate-200 text-slate-700 hover:border-slate-350 hover:bg-slate-50/50 shadow-2xs'
+                                ? 'bg-[#00693E] text-white shadow-sm' 
+                                : 'bg-[#EFEFEF]/80 text-slate-700 hover:bg-[#EFEFEF]'
                             }`}
                           >
-                            <span className="text-xs font-extrabold truncate uppercase pr-2">
-                              {c.nama}
-                            </span>
+                            <div className="flex items-center gap-3 truncate">
+                              {isSelected ? (
+                                <FolderOpen className="h-5 w-5 text-white shrink-0" />
+                              ) : (
+                                <Folder className="h-5 w-5 text-slate-400 shrink-0" />
+                              )}
+                              <span className="text-xs font-black truncate uppercase tracking-wider">
+                                {c.nama}
+                              </span>
+                            </div>
 
-                            {/* Ellipsis menu button on the right */}
+                            {/* Titik 3 Action Button with Dropdown (No icons, text only as requested) */}
                             {canWriteCurrent && (
                               <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
                                 <button
-                                  onClick={() => setActiveMenuKelasId(activeMenuKelasId === c.id ? null : c.id)}
+                                  disabled={isSelectionMode}
+                                  onClick={(e) => {
+                                    if (isSelectionMode) return;
+                                    if (activeActionKelasId === c.id) {
+                                      setActiveActionKelasId(null);
+                                      setKelasDropdownPos(null);
+                                    } else {
+                                      const rect = e.currentTarget.getBoundingClientRect();
+                                      const dropdownWidth = 112;
+                                      const dropdownHeight = 80;
+                                      let top = rect.bottom;
+                                      if (top + dropdownHeight > window.innerHeight) {
+                                        top = rect.top - dropdownHeight;
+                                      }
+                                      let left = rect.right - dropdownWidth;
+                                      if (left < 8) left = 8;
+                                      if (left + dropdownWidth > window.innerWidth - 8) {
+                                        left = window.innerWidth - dropdownWidth - 8;
+                                      }
+                                      setKelasDropdownPos({ top, left });
+                                      setActiveActionKelasId(c.id);
+                                    }
+                                  }}
                                   className={`p-1 rounded-md transition-colors ${
+                                    isSelectionMode 
+                                      ? 'opacity-30 cursor-not-allowed text-slate-350' 
+                                      : 'cursor-pointer'
+                                  } ${
                                     isSelected 
-                                      ? 'hover:bg-emerald-700 text-emerald-100' 
-                                      : 'hover:bg-slate-100 text-slate-400 hover:text-slate-700'
+                                      ? 'hover:bg-emerald-800 text-emerald-100' 
+                                      : 'hover:bg-slate-200 text-slate-400 hover:text-slate-750'
                                   }`}
+                                  title="Opsi Aksi"
                                 >
-                                  <MoreVertical className="h-3.5 w-3.5" />
+                                  <MoreVertical className="h-4 w-4 text-current" />
                                 </button>
-                                {activeMenuKelasId === c.id && (
-                                  <>
-                                    <div className="fixed inset-0 z-20" onClick={() => setActiveMenuKelasId(null)} />
-                                    <div className="absolute right-0 mt-1 w-24 bg-white border border-slate-200 rounded-lg shadow-md z-30 py-1 text-[10px] font-bold text-slate-700">
-                                      <button
-                                        onClick={() => {
-                                          setActiveMenuKelasId(null);
-                                          handleOpenKelasModal(c);
-                                        }}
-                                        className="w-full text-left px-2.5 py-1.5 hover:bg-slate-50 cursor-pointer"
-                                      >
-                                        Edit
-                                      </button>
-                                      {!isDefault && (
-                                        <button
-                                          onClick={() => {
-                                            setActiveMenuKelasId(null);
-                                            handleDeleteKelasClick(c.id, c.nama);
-                                          }}
-                                          className="w-full text-left px-2.5 py-1.5 hover:bg-rose-50 text-rose-600 cursor-pointer"
-                                        >
-                                          Hapus
-                                        </button>
-                                      )}
-                                    </div>
-                                  </>
-                                )}
                               </div>
                             )}
                           </div>
@@ -1085,11 +1425,11 @@ export default function LembagaKelasSub({
 
               </div>
 
-              {/* RIGHT COLUMN (70% Width - col-span-8) */}
-              <div className="lg:col-span-8 flex flex-col gap-4">
+              {/* RIGHT COLUMN (70% Width - col-span-8) - Styled as a beautiful high-contrast card with fixed desktop height */}
+              <div className="lg:col-span-8 bg-white border border-slate-100 rounded-2xl px-5 py-6 flex flex-col relative lg:h-[680px] min-h-[500px] shadow-xs">
                 
                 {!selectedKelas ? (
-                  <div className="flex-1 bg-transparent p-12 flex flex-col items-center justify-center text-center h-full min-h-[500px]">
+                  <div className="flex-1 flex flex-col items-center justify-center text-center h-full p-12">
                     <GraduationCap className="h-16 w-16 text-slate-300 mb-4 animate-pulse" />
                     <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">Silakan Pilih Kelas</h3>
                     <p className="text-xs text-slate-400 max-w-xs mt-2 font-medium">
@@ -1097,237 +1437,537 @@ export default function LembagaKelasSub({
                     </p>
                   </div>
                 ) : (
-                  <div className="bg-transparent p-0 flex flex-col flex-1 min-h-[500px]">
+                  <div className="flex flex-col flex-1 min-h-0">
                     
                     {/* 1. Detail Kelas Card Top Section */}
-                    <div className="flex items-start justify-between pb-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 shrink-0">
                       <div>
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Detail Kelas</span>
-                        <h2 className="text-2xl font-black text-slate-800 tracking-tight leading-tight uppercase mt-1">
+                        <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">Detail Kelas</span>
+                        <h2 className="text-2xl lg:text-3xl font-black text-slate-800 tracking-tight leading-none uppercase mt-1">
                           {selectedKelas.nama}
                         </h2>
                       </div>
 
-                      {/* Class actions three-dot menu button */}
-                      {canWriteCurrent && (
-                        <div className="relative shrink-0">
-                          <button
-                            onClick={() => setActiveMenuKelasId(activeMenuKelasId === `top-${selectedKelas.id}` ? null : `top-${selectedKelas.id}`)}
-                            className="p-2 rounded-full border border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-all cursor-pointer shadow-3xs"
-                            title="Menu Aksi Kelas"
-                          >
-                            <MoreVertical className="h-4.5 w-4.5" />
-                          </button>
-                          {activeMenuKelasId === `top-${selectedKelas.id}` && (
-                            <>
-                              <div className="fixed inset-0 z-20" onClick={() => setActiveMenuKelasId(null)} />
-                              <div className="absolute right-0 mt-1.5 w-32 bg-white border border-slate-200 rounded-xl shadow-lg z-30 py-1 text-xs font-bold text-slate-700">
-                                <button
-                                  onClick={() => {
-                                    setActiveMenuKelasId(null);
-                                    handleOpenKelasModal(selectedKelas);
-                                  }}
-                                  className="w-full text-left px-3.5 py-2 hover:bg-slate-50 cursor-pointer"
-                                >
-                                  Edit Kelas
-                                </button>
-                                {activeTab === 'Rombel' ? null : (
-                                  <button
-                                    onClick={() => {
-                                      setActiveMenuKelasId(null);
-                                      setAddMemberSearch('');
-                                      setIsAddMemberModalOpen(true);
-                                    }}
-                                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 text-emerald-600 cursor-pointer"
-                                  >
-                                    Tambah Anggota
-                                  </button>
-                                )}
-                                {!(activeTab !== 'Rombel' && (selectedKelas.id.endsWith('-default') || selectedKelas.nama.toLowerCase() === 'calon pelajar')) && (
-                                  <button
-                                    onClick={() => {
-                                      setActiveMenuKelasId(null);
-                                      handleDeleteKelasClick(selectedKelas.id, selectedKelas.nama);
-                                    }}
-                                    className="w-full text-left px-3.5 py-2 hover:bg-rose-50 text-rose-600 cursor-pointer"
-                                  >
-                                    Hapus Kelas
-                                  </button>
-                                )}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                      {/* Class Action Buttons directly visible */}
+                      {canWriteCurrent && (() => {
+                        const isSelectedKelasDefault = activeTab !== 'Rombel' && (selectedKelas.id.endsWith('-default') || selectedKelas.nama.toLowerCase() === 'calon pelajar');
+                        return (
+                          <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                            <button
+                              disabled={isSelectionMode}
+                              onClick={() => {
+                                if (isSelectionMode) return;
+                                handleOpenKelasModal(selectedKelas);
+                              }}
+                              className={`inline-flex items-center justify-center bg-white border border-slate-200 h-8 w-8 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                                isSelectionMode 
+                                  ? 'opacity-40 cursor-not-allowed text-slate-350' 
+                                  : 'hover:bg-slate-50 cursor-pointer text-slate-700 shadow-3xs active:scale-95'
+                              }`}
+                              title={isSelectedKelasDefault ? "Pengaturan Kelas" : "Edit Kelas"}
+                            >
+                              {isSelectedKelasDefault ? (
+                                <Settings className="h-4 w-4 text-slate-500" />
+                              ) : (
+                                <Pencil className="h-4 w-4 text-slate-500" />
+                              )}
+                            </button>
+                          
+                            {activeTab !== 'Rombel' && (
+                              <button
+                                disabled={isSelectionMode}
+                                onClick={() => {
+                                  if (isSelectionMode) return;
+                                  setAddMemberSearch('');
+                                  setIsAddMemberModalOpen(true);
+                                }}
+                                className={`inline-flex items-center justify-center border h-8 w-8 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                                  isSelectionMode 
+                                    ? 'bg-emerald-50/55 border-emerald-50/55 opacity-40 cursor-not-allowed text-emerald-350' 
+                                    : 'bg-emerald-50 hover:bg-emerald-100/80 text-[#00693E] border border-emerald-100 cursor-pointer shadow-3xs active:scale-95'
+                                }`}
+                                title="Tambah Anggota"
+                              >
+                                <UserPlus className="h-4 w-4" />
+                              </button>
+                            )}
 
-                    {/* 2. Thin Horizontal Metadata Bar */}
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 py-3 border-y border-slate-200 text-xs font-bold text-slate-500 mb-6 shrink-0 bg-slate-50/30 px-2 rounded-lg">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-slate-400 font-extrabold uppercase shrink-0">Wali Kelas:</span>
-                        <span className="text-slate-800 truncate">{selectedKelas.waliKelas || '-'}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 sm:justify-center">
-                        <span className="text-[10px] text-slate-400 font-extrabold uppercase shrink-0">Jumlah Anggota:</span>
-                        <span className="text-slate-800 font-mono">{totalStudents} Santri</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 sm:justify-center">
-                        <span className="text-emerald-600 font-mono">{verifiedCount} Sukses Verval</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 sm:justify-end">
-                        <span className="text-rose-600 font-mono">{pendingCount} Proses Verval</span>
-                      </div>
-                    </div>
-
-                    {/* 3. TABLE CONTAINER (Header + Detail Anggota scroll section) */}
-                    <div className="flex-1 flex flex-col min-h-[300px] border border-slate-150 rounded-2xl overflow-hidden bg-white shadow-3xs">
-                      
-                      {/* Header Tabel Box */}
-                      <div className="border-b border-slate-200 bg-slate-100/70 text-[10px] font-black text-slate-500 uppercase tracking-wider shrink-0 px-4 py-3">
-                        <div className="grid grid-cols-12 gap-2">
-                          <div className="col-span-1 text-center">No</div>
-                          <div className="col-span-4">Nama Lengkap / NIS</div>
-                          <div className="col-span-2">NISN</div>
-                          <div className="col-span-2">NISM</div>
-                          <div className="col-span-2">Keanggotaan</div>
-                          <div className="col-span-1 text-center">Aksi</div>
-                        </div>
-                      </div>
-
-                      {/* Detail Anggota List Area */}
-                      <div className="flex-1 overflow-y-auto divide-y divide-slate-100 max-h-[360px] pr-1">
-                        {filteredStudents.length === 0 ? (
-                          <div className="py-16 text-center text-slate-400 font-medium italic text-xs">
-                            Belum ada santri terdaftar di kelas/kelompok ini.
+                            {!(activeTab !== 'Rombel' && (selectedKelas.id.endsWith('-default') || selectedKelas.nama.toLowerCase() === 'calon pelajar')) && (
+                              <button
+                                disabled={isSelectionMode}
+                                onClick={() => {
+                                  if (isSelectionMode) return;
+                                  handleDeleteKelasClick(selectedKelas.id, selectedKelas.nama);
+                                }}
+                                className={`inline-flex items-center justify-center border h-8 w-8 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                                  isSelectionMode 
+                                    ? 'bg-rose-50/50 border-rose-50/50 opacity-40 cursor-not-allowed text-rose-350' 
+                                    : 'bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-150 cursor-pointer shadow-3xs active:scale-95'
+                                }`}
+                                title="Hapus Kelas"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
                           </div>
-                        ) : (
-                          filteredStudents.map((s, idx) => {
-                            const isNisnValid = s.nisn && s.nisn.trim() !== '';
-                            const isNismValid = s.nism && s.nism.trim() !== '';
+                        );
+                      })()}
+                    </div>
 
-                            return (
-                              <div key={s.id} className="grid grid-cols-12 gap-2 px-4 py-3 items-center text-xs text-slate-700 font-semibold hover:bg-slate-50/40 transition-colors">
-                                {/* No */}
-                                <div className="col-span-1 text-center font-mono text-slate-400">
-                                  {idx + 1}
+                    {/* 2. THREE BENTO STATS CARDS */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6 shrink-0">
+                      
+                      {/* Card 1: Wali Kelas or Batas Usia */}
+                      {(() => {
+                        const isSelectedKelasDefault = activeTab !== 'Rombel' && (selectedKelas.id.endsWith('-default') || selectedKelas.nama.toLowerCase() === 'calon pelajar');
+                        if (isSelectedKelasDefault) {
+                          const refDay = selectedKelas.batasUsiaHari || 1;
+                          const refMonth = selectedKelas.batasUsiaBulan || 7;
+                          const minAge = selectedKelas.batasUsiaUmurMin || 7;
+                          const currentYear = new Date().getFullYear();
+                          return (
+                            <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs flex flex-col justify-between">
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2.5">BATAS USIA PENDAFTARAN</span>
+                              <div className="flex items-center gap-3">
+                                <div className="h-9 w-9 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
+                                  <Settings className="h-4.5 w-4.5 text-blue-600" />
                                 </div>
-
-                                {/* Nama Lengkap with Avatar & NIS */}
-                                <div className="col-span-4 flex items-center gap-3 min-w-0">
-                                  {renderStudentAvatar(s)}
-                                  <div className="min-w-0">
-                                    <div
-                                      onClick={() => setSelectedSantriForDetail(s)}
-                                      className="font-extrabold text-slate-800 hover:text-emerald-700 hover:underline cursor-pointer transition-colors truncate"
-                                      title="Lihat Biodata Lengkap"
-                                    >
-                                      {s.nama}
-                                    </div>
-                                    <div className="text-[10px] font-mono text-slate-400 mt-0.5">
-                                      NIS: {s.nis || '-'}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* NISN */}
-                                <div className="col-span-2 font-mono text-slate-600 truncate">
-                                  {s.nisn || <span className="text-slate-300">-</span>}
-                                </div>
-
-                                {/* NISM */}
-                                <div className="col-span-2 font-mono text-slate-600 truncate">
-                                  {s.nism || <span className="text-slate-300">-</span>}
-                                </div>
-
-                                {/* Keanggotaan & Verval (combining into clean tags) */}
-                                <div className="col-span-2 flex flex-col gap-1 items-start">
-                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold border ${
-                                    s.statusKeanggotaan === 'Aktif'
-                                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                                      : 'bg-slate-50 border-slate-200 text-slate-500'
-                                  }`}>
-                                    {s.statusKeanggotaan}
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-xs font-black text-slate-800 leading-none">
+                                    Min. {minAge} Tahun
                                   </span>
-                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold border ${
-                                    isNisnValid
-                                      ? 'bg-blue-50 border-blue-200 text-blue-700'
-                                      : 'bg-rose-50 border-rose-200 text-rose-700'
-                                  }`}>
-                                    {isNisnValid ? 'Verified' : 'Proses'}
+                                  <span className="text-[9px] font-bold text-slate-450 mt-1">
+                                    per {refDay} {getMonthName(refMonth)} {currentYear}
                                   </span>
                                 </div>
+                              </div>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs flex flex-col justify-between">
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2.5">WALI KELAS</span>
+                              <div className="flex items-center gap-3">
+                                <div className="h-9 w-9 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+                                  <User className="h-4.5 w-4.5 text-[#046A38]" />
+                                </div>
+                                <span className="text-sm font-extrabold text-slate-800 truncate" title={selectedKelas.waliKelas || selectedKelas.pembimbing || '-'}>
+                                  {selectedKelas.waliKelas || selectedKelas.pembimbing || '-'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        }
+                      })()}
 
-                                {/* Row Actions menu */}
-                                <div className="col-span-1 text-center">
-                                  {canWriteCurrent && (
-                                    <div className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
-                                      <button
-                                        onClick={() => setActiveActionStudentId(activeActionStudentId === s.id ? null : s.id)}
-                                        className="p-1 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-                                        title="Opsi Aksi"
-                                      >
-                                        <MoreVertical className="h-4 w-4" />
-                                      </button>
-                                      
-                                      <AnimatePresence>
-                                        {activeActionStudentId === s.id && (
-                                          <>
-                                            <div className="fixed inset-0 z-35" onClick={() => setActiveActionStudentId(null)} />
-                                            <motion.div
-                                              initial={{ opacity: 0, scale: 0.95 }}
-                                              animate={{ opacity: 1, scale: 1 }}
-                                              exit={{ opacity: 0, scale: 0.95 }}
-                                              className="absolute right-0 mt-1 w-32 bg-white border border-slate-200 rounded-xl shadow-lg z-40 py-1 text-[11px] font-bold text-slate-700 text-left"
-                                            >
-                                              <button
-                                                onClick={() => {
-                                                  setSelectedSantriForDetail(s);
-                                                  setActiveActionStudentId(null);
-                                                }}
-                                                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-emerald-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-                                              >
-                                                <UserCheck className="h-3.5 w-3.5" />
-                                                <span>Pilih</span>
-                                              </button>
-                                              <button
-                                                onClick={() => {
-                                                  setTransferStudent(s);
-                                                  setDestClassId('');
-                                                  setActiveActionStudentId(null);
-                                                }}
-                                                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-blue-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-                                              >
-                                                <ArrowRightLeft className="h-3.5 w-3.5" />
-                                                <span>Pindah</span>
-                                              </button>
-                                              <button
-                                                onClick={() => {
-                                                  setActiveActionStudentId(null);
-                                                  handleRemoveStudentFromClass(s);
-                                                }}
-                                                className="w-full text-left px-3 py-1.5 hover:bg-rose-50 hover:text-rose-600 flex items-center gap-1.5 transition-colors cursor-pointer text-rose-600 border-t border-slate-50 mt-1"
-                                              >
-                                                <UserMinus className="h-3.5 w-3.5" />
-                                                <span>Keluarkan</span>
-                                              </button>
-                                            </motion.div>
-                                          </>
-                                        )}
-                                      </AnimatePresence>
-                                    </div>
+                      {/* Card 2: Jumlah Santri */}
+                      <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs flex flex-col justify-between">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2.5">JUMLAH SANTRI</span>
+                        <div className="flex items-center gap-3">
+                          <div className="h-9 w-9 rounded-full bg-emerald-50 text-[#046A38] flex items-center justify-center shrink-0">
+                            <Users className="h-4 w-4" />
+                          </div>
+                          <span className="text-sm font-black text-[#046A38]">
+                            {totalStudents} Santri
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Card 3: Verval Status */}
+                      <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs flex flex-col justify-between">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2.5">VERVAL STATUS</span>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <span className="text-lg font-black text-[#046A38] block leading-none">{verifiedCount}</span>
+                            <span className="text-[10px] font-extrabold text-emerald-700">Sukses</span>
+                          </div>
+                          <div>
+                            <span className="text-lg font-black text-rose-600 block leading-none">{pendingCount}</span>
+                            <span className="text-[10px] font-extrabold text-rose-600">Proses</span>
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    {/* Bulk Selection Action Bar (Text only action triggers) */}
+                    {isSelectionMode && selectedStudentIds.length > 0 && (
+                      <div className="mb-4 border border-emerald-100 bg-emerald-50/40 px-5 py-3 flex flex-wrap items-center justify-between gap-3 shrink-0 rounded-2xl animate-in slide-in-from-top duration-200 shadow-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                          <span className="text-xs font-black text-emerald-800 uppercase tracking-wide">
+                            {selectedStudentIds.length} Santri Terpilih
+                          </span>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBulkDestClassId('');
+                              setIsBulkTransferOpen(true);
+                            }}
+                            className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-[10px] font-black uppercase tracking-wide cursor-pointer transition-colors shadow-3xs"
+                          >
+                            Pindah Masal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleBulkRemoveStudents}
+                            className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wide cursor-pointer transition-colors shadow-3xs"
+                          >
+                            Keluarkan Masal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedStudentIds([]);
+                              setIsSelectionMode(false);
+                            }}
+                            className="px-3.5 py-1.5 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-[10px] font-black uppercase tracking-wide cursor-pointer transition-colors shadow-3xs"
+                          >
+                            Batal
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3. TABLE CONTAINER (No Outline and No Shadow as requested) */}
+                    <div className="flex-1 flex flex-col min-h-0 relative group/table">
+                      
+                      {/* Scroll Navigation Buttons for Horizontal Scroll (only visible when table is scrollable) */}
+                      {isScrollable && (
+                        <>
+                          {/* Scroll Left Button */}
+                          <button
+                            type="button"
+                            onClick={() => scrollTable('left')}
+                            disabled={!canScrollLeft}
+                            className={`absolute left-0 -translate-x-1/2 top-[26px] -translate-y-1/2 z-40 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+                              canScrollLeft 
+                                ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
+                                : 'border-slate-100 text-slate-300 opacity-0 pointer-events-none'
+                            }`}
+                            title="Gulir Kiri"
+                          >
+                            <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
+                          </button>
+
+                          {/* Scroll Right Button */}
+                          <button
+                            type="button"
+                            onClick={() => scrollTable('right')}
+                            disabled={!canScrollRight}
+                            className={`absolute right-0 translate-x-1/2 top-[26px] -translate-y-1/2 z-40 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md transition-all duration-200 ${
+                              canScrollRight 
+                                ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:scale-105 active:scale-95 cursor-pointer opacity-100' 
+                                : 'border-slate-100 text-slate-300 opacity-0 pointer-events-none'
+                            }`}
+                            title="Gulir Kanan"
+                          >
+                            <ChevronRight className="h-4 w-4 stroke-[2.5]" />
+                          </button>
+                        </>
+                      )}
+
+                      {/* Inner box with overflow-hidden to clip the rounded corners properly */}
+                      <div className="flex-1 flex flex-col min-h-0 rounded-2xl overflow-hidden bg-white border border-slate-100/60 shadow-3xs">
+                        {/* Scrollable Area */}
+                        <div 
+                          ref={tableContainerRef}
+                          onScroll={handleTableScroll}
+                          className="flex-1 overflow-x-auto overflow-y-auto divide-y divide-slate-50 scrollbar-none"
+                        >
+                          <div className="min-w-[920px] flex flex-col">
+                            
+                            {/* Header Tabel Box */}
+                            <div className="border-b border-slate-100 bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-wider shrink-0 sticky top-0 z-30">
+                              <div className="grid grid-cols-[55px_240px_120px_115px_100px_105px_110px_75px] items-stretch">
+                                <div className="sticky left-0 z-30 bg-slate-50 text-center select-none pl-6 py-4 flex items-center justify-center border-r border-slate-100/60">
+                                  {isSelectionMode ? (
+                                    <input
+                                      type="checkbox"
+                                      checked={paginatedStudents.length > 0 && paginatedStudents.every(s => selectedStudentIds.includes(s.id))}
+                                      onChange={(e) => {
+                                        const pageIds = paginatedStudents.map(s => s.id);
+                                        if (e.target.checked) {
+                                          setSelectedStudentIds(prev => Array.from(new Set([...prev, ...pageIds])));
+                                        } else {
+                                          setSelectedStudentIds(prev => prev.filter(id => !pageIds.includes(id)));
+                                        }
+                                      }}
+                                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer h-3.5 w-3.5"
+                                    />
+                                  ) : (
+                                    'No'
                                   )}
                                 </div>
+                                {renderSortableHeader('Profil', 'nama', 'sticky left-[55px] z-30 bg-slate-50 pl-2 py-4 border-r border-slate-100/60')}
+                                {renderSortableHeader('NISN', 'nisn', 'pl-3 py-4 bg-slate-50 border-r border-slate-100/60')}
+                                {renderSortableHeader('NISM', 'nism', 'pl-3 py-4 bg-slate-50 border-r border-slate-100/60')}
+                                <div className="select-none font-bold text-slate-400 pl-3 py-4 flex items-center bg-slate-50 border-r border-slate-100/60">EMIS</div>
+                                {renderSortableHeader('Status', 'statusKeanggotaan', 'pl-3 py-4 bg-slate-50 border-r border-slate-100/60')}
+                                <div className="select-none font-bold text-slate-400 pl-3 py-4 flex items-center bg-slate-50 border-r border-slate-100/60">Verval</div>
+                                <div className="sticky right-0 z-30 bg-slate-50 select-none pr-6 py-4 flex items-center justify-end font-bold text-slate-400">
+                                  Aksi
+                                </div>
                               </div>
-                            );
-                          })
-                        )}
-                      </div>
+                            </div>
 
+                            {/* Detail Anggota List Area */}
+                            <div className="divide-y divide-slate-100/60">
+                              {filteredStudents.length === 0 ? (
+                                <div className="py-16 text-center text-slate-400 font-medium italic text-xs">
+                                  Belum ada santri terdaftar di kelas/kelompok ini.
+                                </div>
+                              ) : (
+                                paginatedStudents.map((s, localIdx) => {
+                                  const idx = startIndex + localIdx;
+                                  const isNisnValid = s.nisn && s.nisn.trim() !== '';
+                                  const isSelected = selectedStudentIds.includes(s.id);
+                                  const stickyBg = isSelectionMode && isSelected
+                                    ? 'bg-[#eaf7f0] group-hover/row:bg-[#dff3e8]'
+                                    : 'bg-white group-hover/row:bg-slate-50';
+                                  
+                                  const rowBgClass = isSelectionMode && isSelected
+                                    ? 'bg-[#eaf7f0]/60 hover:bg-[#dff3e8]/70'
+                                    : 'hover:bg-slate-50/30';
+                                  
+                                  return (
+                                    <div 
+                                      key={s.id} 
+                                      onClick={(e) => handleRowClick(e, s)}
+                                      className={`grid grid-cols-[55px_240px_120px_115px_100px_105px_110px_75px] items-stretch text-xs text-slate-700 font-semibold transition-colors group/row ${
+                                        isSelectionMode ? 'cursor-pointer' : ''
+                                      } ${rowBgClass}`}
+                                    >
+                                      {/* No or Checkbox Column */}
+                                      <div className={`sticky left-0 z-10 flex items-center justify-center pl-6 py-4.5 select-none transition-colors ${stickyBg}`}>
+                                        {isSelectionMode ? (
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={() => handleToggleStudentSelection(s.id)}
+                                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer h-3.5 w-3.5"
+                                          />
+                                        ) : (
+                                          <span className="font-sans text-slate-400 text-xs font-extrabold">{idx + 1}</span>
+                                        )}
+                                      </div>
+
+                                      {/* Nama Lengkap with Avatar & NIS (Profil) */}
+                                      <div className={`sticky left-[55px] z-10 flex items-center gap-3 min-w-0 pl-2 py-4.5 transition-colors ${stickyBg}`}>
+                                        {renderStudentAvatar(s)}
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span
+                                              onClick={(e) => {
+                                                if (isSelectionMode) return; // let bubble to handleRowClick
+                                                e.stopPropagation();
+                                                setSelectedSantriForDetail(s);
+                                              }}
+                                              className={`font-extrabold text-slate-800 transition-colors truncate ${
+                                                isSelectionMode 
+                                                  ? 'pointer-events-none' 
+                                                  : 'hover:text-emerald-700 hover:underline cursor-pointer'
+                                              }`}
+                                              title={isSelectionMode ? undefined : "Lihat Biodata Lengkap"}
+                                            >
+                                              {s.nama}
+                                            </span>
+                                            {(() => {
+                                              const isSelectedKelasDefault = selectedKelas && (selectedKelas.id.endsWith('-default') || selectedKelas.nama.toLowerCase() === 'calon pelajar');
+                                              if (isSelectedKelasDefault) {
+                                                const refDay = selectedKelas.batasUsiaHari || 1;
+                                                const refMonth = selectedKelas.batasUsiaBulan || 7;
+                                                const minAge = selectedKelas.batasUsiaUmurMin || 7;
+                                                const calculatedAge = calculateAgeAsOfReference(s.tanggalLahir, refDay, refMonth);
+                                                
+                                                if (calculatedAge !== null) {
+                                                  const isUnderAge = calculatedAge < minAge;
+                                                  return (
+                                                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wide leading-none shrink-0 ${
+                                                      isUnderAge 
+                                                        ? 'bg-rose-50 text-rose-600 border border-rose-100' 
+                                                        : 'bg-emerald-50 text-emerald-750 border border-emerald-100'
+                                                    }`} title={`Usia per tanggal batas: ${calculatedAge} tahun (Syarat: Min. ${minAge} tahun)`}>
+                                                      {calculatedAge} Thn {isUnderAge ? '(!)' : '✓'}
+                                                    </span>
+                                                  );
+                                                }
+                                              }
+                                              return null;
+                                            })()}
+                                          </div>
+                                          <div className="text-[10px] text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-1 font-medium">
+                                            <span className="font-mono">{s.nis || '-'}</span>
+                                            {(s.desa || s.kecamatan || s.kabupaten) && (
+                                              <>
+                                                <span className="text-slate-300 font-bold">&middot;</span>
+                                                <span className="truncate max-w-[150px] uppercase text-[9px] font-extrabold" title={[s.desa, s.kecamatan, s.kabupaten].filter(Boolean).join(', ')}>
+                                                  {[s.desa, s.kecamatan, s.kabupaten].filter(Boolean).join(', ')}
+                                                </span>
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* NISN */}
+                                      <div className="font-mono font-bold text-slate-600 truncate pl-1 py-4.5 flex items-center">
+                                        {s.nisn || <span className="text-slate-300">-</span>}
+                                      </div>
+
+                                      {/* NISM */}
+                                      <div className="font-mono font-bold text-slate-400 truncate pl-1 py-4.5 flex items-center">
+                                        {s.nism || <span className="text-slate-300">-</span>}
+                                      </div>
+
+                                      {/* EMIS Column */}
+                                      <div className="pl-1 py-4.5 flex items-center">
+                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide ${
+                                          s.statusEmis === 'Terdaftar'
+                                            ? 'bg-blue-50 text-blue-700'
+                                            : 'bg-amber-50 text-amber-700'
+                                        }`}>
+                                          {s.statusEmis || 'Belum'}
+                                        </span>
+                                      </div>
+
+                                      {/* Status */}
+                                      <div className="font-semibold pl-1 py-4.5 flex items-center">
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide ${
+                                          s.statusKeanggotaan === 'Aktif'
+                                            ? 'bg-[#E6F4EA] text-[#137333]'
+                                            : 'bg-slate-100 text-slate-500'
+                                        }`}>
+                                          {s.statusKeanggotaan}
+                                        </span>
+                                      </div>
+
+                                      {/* Verval */}
+                                      <div className="pl-1 py-4.5 flex items-center">
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide ${
+                                          isNisnValid
+                                            ? 'bg-[#E6F4EA] text-[#137333]'
+                                            : 'bg-[#FCE8E6] text-[#C5221F]'
+                                        }`}>
+                                          {isNisnValid ? 'Sukses' : 'Proses'}
+                                        </span>
+                                      </div>
+
+                                      {/* Aksi */}
+                                      <div className={`sticky right-0 z-10 flex items-center justify-end pr-6 py-4.5 transition-colors ${stickyBg}`}>
+                                        {canWriteCurrent && (
+                                          <div className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                              disabled={isSelectionMode}
+                                              onClick={(e) => {
+                                                if (isSelectionMode) return;
+                                                if (activeActionStudentId === s.id) {
+                                                  setActiveActionStudentId(null);
+                                                  setStudentDropdownPos(null);
+                                                } else {
+                                                  const rect = e.currentTarget.getBoundingClientRect();
+                                                  const dropdownWidth = 128;
+                                                  const dropdownHeight = 150;
+                                                  let top = rect.bottom;
+                                                  if (top + dropdownHeight > window.innerHeight) {
+                                                    top = rect.top - dropdownHeight;
+                                                  }
+                                                  let left = rect.right - dropdownWidth;
+                                                  if (left < 8) left = 8;
+                                                  if (left + dropdownWidth > window.innerWidth - 8) {
+                                                    left = window.innerWidth - dropdownWidth - 8;
+                                                  }
+                                                  setStudentDropdownPos({ top, left });
+                                                  setActiveActionStudentId(s.id);
+                                                }
+                                              }}
+                                              className={`p-1 rounded-md transition-colors ${
+                                                isSelectionMode 
+                                                  ? 'opacity-30 cursor-not-allowed text-slate-300' 
+                                                  : 'hover:bg-slate-100 text-slate-400 hover:text-slate-800 cursor-pointer'
+                                              }`}
+                                              title="Opsi Aksi"
+                                            >
+                                              <MoreVertical className="h-4 w-4" />
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
-                  </div>
-                )}
-              </div>
+
+
+                      {/* Elegant Pagination Footer */}
+                      {filteredStudents.length > 0 && (
+                        <div className="border-t border-slate-100 bg-slate-50/50 px-6 py-4 flex items-center justify-between shrink-0">
+                          {(() => {
+                            const itemsPerPage = 10;
+                            const totalPages = Math.ceil(filteredStudents.length / itemsPerPage) || 1;
+                            const activePage = Math.min(currentPage, totalPages);
+                            const startIndex = (activePage - 1) * itemsPerPage;
+                            const endRange = Math.min(startIndex + itemsPerPage, filteredStudents.length);
+
+                            return (
+                              <>
+                                <span className="text-xs font-bold text-slate-500">
+                                  Menampilkan {startIndex + 1}-{endRange} dari {filteredStudents.length} santri
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    disabled={isSelectionMode || activePage <= 1}
+                                    onClick={() => {
+                                      if (isSelectionMode) return;
+                                      setCurrentPage(prev => Math.max(prev - 1, 1));
+                                    }}
+                                    className={`w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center transition-colors ${
+                                      (isSelectionMode || activePage <= 1) 
+                                        ? 'opacity-40 cursor-not-allowed bg-slate-50 text-slate-400' 
+                                        : 'hover:bg-slate-50 text-slate-600 active:scale-95 cursor-pointer'
+                                    }`}
+                                  >
+                                    <ChevronLeft className="h-4 w-4" />
+                                  </button>
+                                  <div className="w-8 h-8 rounded-lg bg-[#00693E] text-white text-xs font-black flex items-center justify-center select-none">
+                                    {activePage}
+                                  </div>
+                                  <button
+                                    disabled={isSelectionMode || activePage >= totalPages}
+                                    onClick={() => {
+                                      if (isSelectionMode) return;
+                                      setCurrentPage(prev => Math.min(prev + 1, totalPages));
+                                    }}
+                                    className={`w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center transition-colors ${
+                                      (isSelectionMode || activePage >= totalPages) 
+                                        ? 'opacity-40 cursor-not-allowed bg-slate-50 text-slate-400' 
+                                        : 'hover:bg-slate-50 text-slate-600 active:scale-95 cursor-pointer'
+                                    }`}
+                                  >
+                                    <ChevronRight className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+                </div>
 
             </div>
           </motion.div>
@@ -1493,10 +2133,13 @@ export default function LembagaKelasSub({
             >
               <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                 <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
-                  {activeTab === 'Rombel'
-                    ? (editingKelas ? 'Edit Kelompok Rombel' : 'Tambah Kelompok Rombel Baru')
-                    : (editingKelas ? 'Edit Kelas' : 'Tambah Kelas Baru')
-                  }
+                  {(() => {
+                    const isCalonPelajar = editingKelas && (editingKelas.id.endsWith('-default') || editingKelas.nama.toLowerCase() === 'calon pelajar');
+                    if (isCalonPelajar) return 'Pengaturan Calon Pelajar';
+                    return activeTab === 'Rombel'
+                      ? (editingKelas ? 'Edit Kelompok Rombel' : 'Tambah Kelompok Rombel Baru')
+                      : (editingKelas ? 'Edit Kelas' : 'Tambah Kelas Baru');
+                  })()}
                 </h3>
                 <button
                   onClick={() => setIsKelasModalOpen(false)}
@@ -1507,64 +2150,103 @@ export default function LembagaKelasSub({
               </div>
 
               <div className="p-5 space-y-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                    {activeTab === 'Rombel' ? 'Nama Kelompok Rombel' : 'Nama Kelas'}
-                  </label>
-                  <input
-                    type="text"
-                    value={kelNama}
-                    onChange={(e) => setKelNama(e.target.value)}
-                    placeholder={activeTab === 'Rombel' ? "Contoh: Halaqah A-1" : "Contoh: Kelas 10-A"}
-                    className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-emerald-500 outline-none font-semibold text-slate-700"
-                  />
-                </div>
+                {(() => {
+                  const isCalonPelajar = editingKelas && (editingKelas.id.endsWith('-default') || editingKelas.nama.toLowerCase() === 'calon pelajar');
+                  return (
+                    <>
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                          Nama Kelompok / Folder
+                        </label>
+                        <input
+                          type="text"
+                          value={kelNama}
+                          onChange={(e) => setKelNama(e.target.value)}
+                          placeholder="Nama"
+                          className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-emerald-500 outline-none font-semibold text-slate-700"
+                        />
+                      </div>
 
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                    {activeTab === 'Rombel' ? 'Nama Pembimbing / Guru' : 'Nama Wali Kelas'}
-                  </label>
-                  <input
-                    type="text"
-                    value={kelWali}
-                    onChange={(e) => setKelWali(e.target.value)}
-                    placeholder="Nama lengkap ustadz / ustadzah dsb."
-                    className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-emerald-500 outline-none font-semibold text-slate-700"
-                  />
-                </div>
+                      {!isCalonPelajar && (
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                            {activeTab === 'Rombel' ? 'Nama Pembimbing / Guru (Opsional)' : 'Nama Wali Kelas (Opsional)'}
+                          </label>
+                          <input
+                            type="text"
+                            value={kelWali}
+                            onChange={(e) => setKelWali(e.target.value)}
+                            placeholder="Nama lengkap (Opsional)"
+                            className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-emerald-500 outline-none font-semibold text-slate-700"
+                          />
+                        </div>
+                      )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  {activeTab !== 'Rombel' && (
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                        Tingkatan
-                      </label>
-                      <select
-                        value={kelTingkat}
-                        onChange={(e) => setKelTingkat(e.target.value as any)}
-                        className="w-full rounded-xl border border-slate-200 bg-white p-3.5 text-xs font-bold text-slate-600 focus:border-emerald-500 outline-none"
-                      >
-                        <option value="Ula">Ula</option>
-                        <option value="Wustho">Wustho</option>
-                        <option value="Ulya">Ulya</option>
-                        <option value="Lainnya">Lainnya</option>
-                      </select>
-                    </div>
-                  )}
+                      {isCalonPelajar && (
+                        <div className="space-y-4 pt-3 border-t border-slate-100">
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                            Atur Batas Usia Calon Pelajar
+                          </span>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                                Batas Tanggal & Bulan
+                              </label>
+                              <div className="flex gap-1.5">
+                                <select
+                                  value={kelBatasUsiaHari}
+                                  onChange={(e) => setKelBatasUsiaHari(Number(e.target.value))}
+                                  className="w-16 rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-bold text-slate-600 focus:border-emerald-500 outline-none"
+                                >
+                                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                                    <option key={d} value={d}>{d}</option>
+                                  ))}
+                                </select>
+                                <select
+                                  value={kelBatasUsiaBulan}
+                                  onChange={(e) => setKelBatasUsiaBulan(Number(e.target.value))}
+                                  className="flex-1 rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-bold text-slate-600 focus:border-emerald-500 outline-none"
+                                >
+                                  <option value={1}>Januari</option>
+                                  <option value={2}>Februari</option>
+                                  <option value={3}>Maret</option>
+                                  <option value={4}>April</option>
+                                  <option value={5}>Mei</option>
+                                  <option value={6}>Juni</option>
+                                  <option value={7}>Juli</option>
+                                  <option value={8}>Agustus</option>
+                                  <option value={9}>September</option>
+                                  <option value={10}>Oktober</option>
+                                  <option value={11}>November</option>
+                                  <option value={12}>Desember</option>
+                                </select>
+                              </div>
+                            </div>
 
-                  <div className={activeTab === 'Rombel' ? "col-span-2" : ""}>
-                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      {activeTab === 'Rombel' ? 'Kuota Kelompok' : 'Kapasitas Maksimal'}
-                    </label>
-                    <input
-                      type="number"
-                      value={kelKapasitas}
-                      onChange={(e) => setKelKapasitas(Number(e.target.value))}
-                      placeholder="20"
-                      className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-emerald-500 outline-none font-mono text-slate-700"
-                    />
-                  </div>
-                </div>
+                            <div>
+                              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                                Batas Usia Min (Tahun)
+                              </label>
+                              <input
+                                type="number"
+                                value={kelBatasUsiaUmurMin}
+                                onChange={(e) => setKelBatasUsiaUmurMin(Number(e.target.value))}
+                                min={1}
+                                max={100}
+                                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-mono font-bold text-slate-700 focus:border-emerald-500 outline-none"
+                              />
+                            </div>
+                          </div>
+                          
+                          <p className="text-[10px] font-medium text-slate-400 italic leading-relaxed">
+                            Sistem akan menghitung usia santri pendaftar saat tanggal tersebut di tahun berjalan.
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               <div className="p-5 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-2.5">
@@ -1652,6 +2334,78 @@ export default function LembagaKelasSub({
         )}
       </AnimatePresence>
 
+      {/* C2. PINDAH KELAS MASAL / BULK TRANSFER STUDENT MODAL */}
+      <AnimatePresence>
+        {isBulkTransferOpen && selectedKelas && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 animate-fade-in">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl border border-slate-100 shadow-xl max-w-sm w-full overflow-hidden"
+            >
+              <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                  Pindahkan Santri Masal
+                </h3>
+                <button 
+                  onClick={() => {
+                    setIsBulkTransferOpen(false);
+                    setBulkDestClassId('');
+                  }} 
+                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 text-xs font-medium text-slate-600">
+                <p>
+                  Pindahkan <strong className="text-slate-800 font-extrabold">{selectedStudentIds.length} santri terpilih</strong> dari kelas/kelompok <strong className="text-emerald-700 font-extrabold">"{selectedKelas.nama}"</strong> ke:
+                </p>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Pilih Kelas Tujuan</label>
+                  <select
+                    value={bulkDestClassId}
+                    onChange={(e) => setBulkDestClassId(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-750 focus:border-emerald-500 outline-none cursor-pointer"
+                  >
+                    <option value="">-- Pilih Kelas --</option>
+                    {subClasses
+                      .filter(c => c.id !== selectedKelas.id)
+                      .map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.nama} ({(c as any).waliKelas || (c as any).pembimbing || '-'})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setIsBulkTransferOpen(false);
+                    setBulkDestClassId('');
+                  }}
+                  className="px-3 py-1.5 border border-slate-250 text-slate-500 rounded-lg text-xs font-bold cursor-pointer"
+                >
+                  BATAL
+                </button>
+                <button
+                  onClick={handleExecuteBulkTransfer}
+                  disabled={!bulkDestClassId}
+                  className="px-4.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold disabled:opacity-50 hover:bg-emerald-700 shadow-xs cursor-pointer"
+                >
+                  PINDAHKAN MASAL
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* D. TAMBAH ANGGOTA / MULTI ADD MEMBER MODAL */}
       <AnimatePresence>
         {isAddMemberModalOpen && selectedKelas && (
@@ -1686,7 +2440,7 @@ export default function LembagaKelasSub({
                     className="w-full pl-9 pr-7 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/30 focus:border-emerald-500 focus:bg-white outline-none font-medium"
                   />
                   {addMemberSearch && (
-                    <button onClick={() => setAddMemberSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-450 hover:text-slate-600">
+                    <button onClick={() => setAddMemberSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-455 hover:text-slate-600">
                       <X className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -1736,6 +2490,62 @@ export default function LembagaKelasSub({
         )}
       </AnimatePresence>
 
+      {/* CLASS DELETE CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {classToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-fade-in">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl border border-slate-100 shadow-xl max-w-sm w-full overflow-hidden flex flex-col"
+            >
+              <div className="p-5 text-center flex flex-col items-center">
+                <div className="h-12 w-12 bg-rose-50 rounded-full flex items-center justify-center mb-3 animate-pulse">
+                  <AlertCircle className="h-6 w-6 text-rose-600" />
+                </div>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                  Konfirmasi Hapus
+                </h3>
+                <p className="text-xs text-slate-500 font-medium mt-2 leading-relaxed px-2">
+                  Apakah Anda yakin ingin menghapus {activeTab === 'Rombel' ? 'kelompok rombel' : 'kelas'} <span className="font-extrabold text-slate-800">"{classToDelete.name}"</span>? Tindakan ini tidak dapat dibatalkan.
+                </p>
+              </div>
+
+              <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0 flex items-center gap-2">
+                <button
+                  onClick={() => setClassToDelete(null)}
+                  className="flex-1 py-2 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold rounded-xl text-xs cursor-pointer shadow-3xs transition-colors"
+                >
+                  BATAL
+                </button>
+                <button
+                  onClick={() => {
+                    const id = classToDelete.id;
+                    if (activeTab === 'Rombel') {
+                      if (onDeleteGroup) {
+                        onDeleteGroup(id);
+                        showToast('Kelompok rombel berhasil dihapus.');
+                      }
+                    } else {
+                      onDeleteKelas(id);
+                      showToast('Kelas berhasil dihapus.');
+                    }
+                    if (selectedKelas?.id === id) {
+                      setSelectedKelas(null);
+                    }
+                    setClassToDelete(null);
+                  }}
+                  className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-3xs transition-colors"
+                >
+                  YA, HAPUS
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* E. SANTRI DETAIL BIODATA MODAL */}
       {selectedSantriForDetail && (
         <SantriDetailModal
@@ -1743,6 +2553,135 @@ export default function LembagaKelasSub({
           onClose={() => setSelectedSantriForDetail(null)}
         />
       )}
+
+      {/* FLOATING FIXED CLASS DROPDOWN */}
+      <AnimatePresence>
+        {activeActionKelasId && kelasDropdownPos && (
+          <>
+            <div className="fixed inset-0 z-[9990]" onClick={() => { setActiveActionKelasId(null); setKelasDropdownPos(null); }} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              style={{
+                position: 'fixed',
+                top: `${kelasDropdownPos.top}px`,
+                left: `${kelasDropdownPos.left}px`,
+                zIndex: 9999
+              }}
+              className="w-28 bg-white border border-slate-200 rounded-xl shadow-lg py-1 text-[11px] font-bold text-slate-700 text-left"
+            >
+              {(() => {
+                const c = kelasList.find(x => x.id === activeActionKelasId);
+                if (!c) return null;
+                const isDefault = activeTab !== 'Rombel' && (c.id.endsWith('-default') || c.nama.toLowerCase() === 'calon pelajar');
+                return (
+                  <>
+                    <button
+                      onClick={() => {
+                        handleOpenKelasModal(c);
+                        setActiveActionKelasId(null);
+                        setKelasDropdownPos(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-[#00693E] transition-colors cursor-pointer block"
+                    >
+                      {isDefault ? 'Pengaturan' : 'Edit'}
+                    </button>
+                    {!isDefault && (
+                      <button
+                        onClick={() => {
+                          handleDeleteKelasClick(c.id, c.nama);
+                          setActiveActionKelasId(null);
+                          setKelasDropdownPos(null);
+                        }}
+                        className="w-full text-left px-3 py-1.5 hover:bg-rose-50 hover:text-rose-600 transition-colors cursor-pointer text-rose-600 border-t border-slate-50 mt-1 block"
+                      >
+                        Hapus
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* FLOATING FIXED STUDENT DROPDOWN */}
+      <AnimatePresence>
+        {activeActionStudentId && studentDropdownPos && (
+          <>
+            <div className="fixed inset-0 z-[9990]" onClick={() => { setActiveActionStudentId(null); setStudentDropdownPos(null); }} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              style={{
+                position: 'fixed',
+                top: `${studentDropdownPos.top}px`,
+                left: `${studentDropdownPos.left}px`,
+                zIndex: 9999
+              }}
+              className="w-32 bg-white border border-slate-200 rounded-xl shadow-lg py-1 text-[11px] font-bold text-slate-700 text-left"
+            >
+              {(() => {
+                const s = santriList.find(x => x.id === activeActionStudentId);
+                if (!s) return null;
+                return (
+                  <>
+                    <button
+                      onClick={() => {
+                        setSelectedSantriForDetail(s);
+                        setActiveActionStudentId(null);
+                        setStudentDropdownPos(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-slate-800 flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <User className="h-3.5 w-3.5 text-slate-500" />
+                      <span>Detail</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsSelectionMode(true);
+                        setSelectedStudentIds([s.id]);
+                        setActiveActionStudentId(null);
+                        setStudentDropdownPos(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-[#00693E] flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <UserCheck className="h-3.5 w-3.5 text-[#00693E]" />
+                      <span>Pilih</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setTransferStudent(s);
+                        setDestClassId('');
+                        setActiveActionStudentId(null);
+                        setStudentDropdownPos(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-blue-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <ArrowRightLeft className="h-3.5 w-3.5 text-blue-600" />
+                      <span>Pindah</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setActiveActionStudentId(null);
+                        setStudentDropdownPos(null);
+                        handleRemoveStudentFromClass(s);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-rose-50 hover:text-rose-600 flex items-center gap-1.5 transition-colors cursor-pointer text-rose-600 border-t border-slate-50 mt-1"
+                    >
+                      <UserMinus className="h-3.5 w-3.5" />
+                      <span>Keluarkan</span>
+                    </button>
+                  </>
+                );
+              })()}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
     </div>
   );
