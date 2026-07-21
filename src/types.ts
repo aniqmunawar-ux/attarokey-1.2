@@ -118,6 +118,10 @@ export interface Lembaga {
   gender?: 'Putra' | 'Putri';
   jenis?: 'Formal' | 'Internal';
   logo?: string;
+  taMulaiTanggal?: number; // 1-31
+  taMulaiBulan?: number; // 1-12
+  taSelesaiTanggal?: number; // 1-31
+  taSelesaiBulan?: number; // 1-12
 }
 
 export interface Kelas {
@@ -127,6 +131,10 @@ export interface Kelas {
   waliKelas: string;
   tingkatan: 'Ula' | 'Wustho' | 'Ulya' | 'Lainnya';
   kapasitas?: number;
+  batasUsiaHari?: number;
+  batasUsiaBulan?: number;
+  batasUsiaUmurMin?: number;
+  batasUsiaUmurMax?: number;
 }
 
 export interface KategoriRombel {

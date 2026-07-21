@@ -127,11 +127,70 @@ export default function PendidikanView({
       seenIds.add(l.id);
       return l;
     });
+
+    const parsedLems = sanitized.map(l => {
+      if (l.deskripsi) {
+        const match = l.deskripsi.match(/\[TA_META:(.*?)\]/);
+        if (match) {
+          try {
+            const meta = JSON.parse(match[1]);
+            return {
+              ...l,
+              taMulaiTanggal: l.taMulaiTanggal !== undefined ? l.taMulaiTanggal : meta.taMulaiTanggal,
+              taMulaiBulan: l.taMulaiBulan !== undefined ? l.taMulaiBulan : meta.taMulaiBulan,
+              taSelesaiTanggal: l.taSelesaiTanggal !== undefined ? l.taSelesaiTanggal : meta.taSelesaiTanggal,
+              taSelesaiBulan: l.taSelesaiBulan !== undefined ? l.taSelesaiBulan : meta.taSelesaiBulan,
+              deskripsi: l.deskripsi.replace(/\[TA_META:.*?\]/g, "").trim()
+            };
+          } catch (e) {}
+        }
+      }
+      return l;
+    });
+
     if (hasDuplicates) {
-      localStorage.setItem('smartsantri_lembagas', JSON.stringify(sanitized));
+      localStorage.setItem('smartsantri_lembagas', JSON.stringify(parsedLems));
     }
-    return sanitized;
+    return parsedLems;
   });
+
+  const deserializeKelas = (k: Kelas): Kelas => {
+    if (k && k.waliKelas) {
+      const match = k.waliKelas.match(/\[KELAS_META:(.*?)\]/);
+      if (match) {
+        try {
+          const meta = JSON.parse(match[1]);
+          return {
+            ...k,
+            tingkatan: k.tingkatan !== undefined ? k.tingkatan : meta.tingkatan,
+            kapasitas: k.kapasitas !== undefined ? k.kapasitas : meta.kapasitas,
+            batasUsiaHari: k.batasUsiaHari !== undefined ? k.batasUsiaHari : meta.batasUsiaHari,
+            batasUsiaBulan: k.batasUsiaBulan !== undefined ? k.batasUsiaBulan : meta.batasUsiaBulan,
+            batasUsiaUmurMin: k.batasUsiaUmurMin !== undefined ? k.batasUsiaUmurMin : meta.batasUsiaUmurMin,
+            batasUsiaUmurMax: k.batasUsiaUmurMax !== undefined ? k.batasUsiaUmurMax : meta.batasUsiaUmurMax,
+            waliKelas: k.waliKelas.replace(/\[KELAS_META:.*?\]/g, "").trim()
+          };
+        } catch (e) {}
+      }
+    }
+    return k;
+  };
+
+  const serializeKelas = (k: Kelas): Kelas => {
+    const meta = {
+      tingkatan: k.tingkatan,
+      kapasitas: k.kapasitas,
+      batasUsiaHari: k.batasUsiaHari,
+      batasUsiaBulan: k.batasUsiaBulan,
+      batasUsiaUmurMin: k.batasUsiaUmurMin,
+      batasUsiaUmurMax: k.batasUsiaUmurMax
+    };
+    const cleanWali = (k.waliKelas || "").replace(/\[KELAS_META:.*?\]/g, "").trim();
+    return {
+      ...k,
+      waliKelas: `${cleanWali} [KELAS_META:${JSON.stringify(meta)}]`.trim()
+    };
+  };
 
   const [kelasList, setKelasList] = useState<Kelas[]>(() => {
     const local = localStorage.getItem('smartsantri_kelas');
@@ -142,10 +201,10 @@ export default function PendidikanView({
       if (!c.id || seenIds.has(c.id)) {
         hasDuplicates = true;
         const newId = `K${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`;
-        return { ...c, id: newId };
+        return deserializeKelas({ ...c, id: newId });
       }
       seenIds.add(c.id);
-      return c;
+      return deserializeKelas(c);
     });
     if (hasDuplicates) {
       localStorage.setItem('smartsantri_kelas', JSON.stringify(sanitized));
@@ -176,10 +235,31 @@ export default function PendidikanView({
       try {
         const lemData = await fetchTableData<Lembaga>('lembaga', 'smartsantri_lembagas', INITIAL_LEMBAGA);
         const uniqueLems = lemData.filter((item, idx, arr) => arr.findIndex(x => x.id === item.id) === idx);
-        setLembagasList(uniqueLems);
+        
+        const processedLems = uniqueLems.map(l => {
+          if (l.deskripsi) {
+            const match = l.deskripsi.match(/\[TA_META:(.*?)\]/);
+            if (match) {
+              try {
+                const meta = JSON.parse(match[1]);
+                return {
+                  ...l,
+                  taMulaiTanggal: l.taMulaiTanggal !== undefined ? l.taMulaiTanggal : meta.taMulaiTanggal,
+                  taMulaiBulan: l.taMulaiBulan !== undefined ? l.taMulaiBulan : meta.taMulaiBulan,
+                  taSelesaiTanggal: l.taSelesaiTanggal !== undefined ? l.taSelesaiTanggal : meta.taSelesaiTanggal,
+                  taSelesaiBulan: l.taSelesaiBulan !== undefined ? l.taSelesaiBulan : meta.taSelesaiBulan,
+                  deskripsi: l.deskripsi.replace(/\[TA_META:.*?\]/g, "").trim()
+                };
+              } catch (e) {}
+            }
+          }
+          return l;
+        });
+
+        setLembagasList(processedLems);
 
         const kelData = await fetchTableData<Kelas>('kelas', 'smartsantri_kelas', INITIAL_KELAS);
-        const uniqueKels = kelData.filter((item, idx, arr) => arr.findIndex(x => x.id === item.id) === idx);
+        const uniqueKels = kelData.filter((item, idx, arr) => arr.findIndex(x => x.id === item.id) === idx).map(deserializeKelas);
 
         // De-duplicate "Calon Pelajar" immediately to prevent duplicate default classes
         const seenCalonPelajarLembagas = new Set<string>();
@@ -220,8 +300,8 @@ export default function PendidikanView({
               tingkatan: 'Lainnya',
             };
             try {
-              const savedClass = await insertTableRow('kelas', 'smartsantri_kelas', defaultClassPayload);
-              updatedKels.push(savedClass);
+              const savedClass = await insertTableRow('kelas', 'smartsantri_kelas', serializeKelas(defaultClassPayload));
+              updatedKels.push(deserializeKelas(savedClass));
               hasHealed = true;
             } catch (err) {
               console.error(`Failed self-healing default class for ${lem.nama}:`, err);
@@ -282,17 +362,55 @@ export default function PendidikanView({
   // --- ACADEMIC STATE HANDLERS ---
   // 1. LEMBAGA CALLBACKS
   const handleAddLembaga = async (newLem: Lembaga) => {
-    const saved = await insertTableRow('lembaga', 'smartsantri_lembagas', newLem);
+    const meta = {
+      taMulaiTanggal: newLem.taMulaiTanggal,
+      taMulaiBulan: newLem.taMulaiBulan,
+      taSelesaiTanggal: newLem.taSelesaiTanggal,
+      taSelesaiBulan: newLem.taSelesaiBulan
+    };
+    const cleanDeskripsi = (newLem.deskripsi || "").replace(/\[TA_META:.*?\]/g, "").trim();
+    const serializedDeskripsi = `${cleanDeskripsi}\n\n[TA_META:${JSON.stringify(meta)}]`.trim();
+    
+    const dbPayload = {
+      ...newLem,
+      deskripsi: serializedDeskripsi
+    };
+
+    const saved = await insertTableRow('lembaga', 'smartsantri_lembagas', dbPayload);
+    
+    const processedSaved = {
+      ...saved,
+      taMulaiTanggal: saved.taMulaiTanggal !== undefined ? saved.taMulaiTanggal : newLem.taMulaiTanggal,
+      taMulaiBulan: saved.taMulaiBulan !== undefined ? saved.taMulaiBulan : newLem.taMulaiBulan,
+      taSelesaiTanggal: saved.taSelesaiTanggal !== undefined ? saved.taSelesaiTanggal : newLem.taSelesaiTanggal,
+      taSelesaiBulan: saved.taSelesaiBulan !== undefined ? saved.taSelesaiBulan : newLem.taSelesaiBulan,
+      deskripsi: cleanDeskripsi
+    };
+
     setLembagasList(prev => {
-      if (prev.some(l => l.id === saved.id)) return prev;
-      return [...prev, saved];
+      if (prev.some(l => l.id === processedSaved.id)) return prev;
+      return [...prev, processedSaved];
     });
-    return saved;
+    return processedSaved;
   };
 
   const handleUpdateLembaga = async (upLem: Lembaga) => {
-    setLembagasList(prev => prev.map(l => l.id === upLem.id ? upLem : l));
-    await updateTableRow('lembaga', 'smartsantri_lembagas', upLem.id, upLem);
+    const meta = {
+      taMulaiTanggal: upLem.taMulaiTanggal,
+      taMulaiBulan: upLem.taMulaiBulan,
+      taSelesaiTanggal: upLem.taSelesaiTanggal,
+      taSelesaiBulan: upLem.taSelesaiBulan
+    };
+    const cleanDeskripsi = (upLem.deskripsi || "").replace(/\[TA_META:.*?\]/g, "").trim();
+    const serializedDeskripsi = `${cleanDeskripsi}\n\n[TA_META:${JSON.stringify(meta)}]`.trim();
+
+    const dbPayload = {
+      ...upLem,
+      deskripsi: serializedDeskripsi
+    };
+
+    setLembagasList(prev => prev.map(l => l.id === upLem.id ? { ...upLem, deskripsi: cleanDeskripsi } : l));
+    await updateTableRow('lembaga', 'smartsantri_lembagas', upLem.id, dbPayload);
   };
 
   const handleDeleteLembaga = async (id: string) => {
@@ -304,17 +422,20 @@ export default function PendidikanView({
 
   // 2. KELAS CALLBACKS
   const handleAddKelas = async (newKel: Kelas) => {
-    const saved = await insertTableRow('kelas', 'smartsantri_kelas', newKel);
+    const serialized = serializeKelas(newKel);
+    const saved = await insertTableRow('kelas', 'smartsantri_kelas', serialized);
+    const deserialized = deserializeKelas(saved);
     setKelasList(prev => {
-      if (prev.some(c => c.id === saved.id)) return prev;
-      return [...prev, saved];
+      if (prev.some(c => c.id === deserialized.id)) return prev;
+      return [...prev, deserialized];
     });
-    return saved;
+    return deserialized;
   };
 
   const handleUpdateKelas = async (upKel: Kelas) => {
     setKelasList(prev => prev.map(c => c.id === upKel.id ? upKel : c));
-    await updateTableRow('kelas', 'smartsantri_kelas', upKel.id, upKel);
+    const serialized = serializeKelas(upKel);
+    await updateTableRow('kelas', 'smartsantri_kelas', upKel.id, serialized);
   };
 
   const handleDeleteKelas = async (id: string) => {
@@ -419,19 +540,25 @@ export default function PendidikanView({
       if (classText === 'Tanpa Kelas') {
         if (lembagaId) {
           currentClasses = currentClasses.filter(cls => {
-            const c = kelasList.find(x => x.nama.toLowerCase() === cls.toLowerCase());
+            const c = kelasList.find(x => x.nama.toLowerCase() === cls.toLowerCase() && x.lembagaId === lembagaId);
             return !c || c.lembagaId !== lembagaId;
           });
         } else {
           currentClasses = [];
         }
       } else {
-        const targetClass = kelasList.find(c => c.nama.toLowerCase() === classText.toLowerCase());
+        const targetClass = kelasList.find(c => 
+          c.nama.toLowerCase() === classText.toLowerCase() && 
+          (!lembagaId || c.lembagaId === lembagaId)
+        );
         const targetLembagaId = targetClass?.lembagaId || lembagaId;
         
         if (targetLembagaId) {
           currentClasses = currentClasses.filter(cls => {
-            const c = kelasList.find(x => x.nama.toLowerCase() === cls.toLowerCase());
+            const c = kelasList.find(x => 
+              x.nama.toLowerCase() === cls.toLowerCase() && 
+              x.lembagaId === targetLembagaId
+            );
             return !c || c.lembagaId !== targetLembagaId;
           });
         }
@@ -464,7 +591,12 @@ export default function PendidikanView({
       };
 
       const activeLembagasOfStudent = currentClasses.map(clsName => {
-        const c = kelasList.find(x => x.nama.toLowerCase() === clsName.toLowerCase());
+        const c = kelasList.find(x => 
+          x.nama.toLowerCase() === clsName.toLowerCase() && 
+          (x.lembagaId === target.pendidikanFormal || 
+           (target.pendidikanInternal?.split(',').includes(x.lembagaId)) || 
+           x.lembagaId === lembagaId)
+        ) || kelasList.find(x => x.nama.toLowerCase() === clsName.toLowerCase());
         return c ? lembagasList.find(l => l.id === c.lembagaId) : null;
       }).filter(Boolean) as Lembaga[];
 
@@ -476,8 +608,8 @@ export default function PendidikanView({
         // If they had a formal class, but now no active formal classes are in the list, clear it
         if (target.pendidikanFormal) {
           const stillHasClassOfFormal = currentClasses.some(clsName => {
-            const c = kelasList.find(k => k.nama.toLowerCase() === clsName.toLowerCase());
-            return c && c.lembagaId === target.pendidikanFormal;
+            const c = kelasList.find(k => k.nama.toLowerCase() === clsName.toLowerCase() && k.lembagaId === target.pendidikanFormal);
+            return !!c;
           });
           if (!stillHasClassOfFormal) {
             newFormal = undefined;

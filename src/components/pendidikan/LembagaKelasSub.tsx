@@ -9,7 +9,12 @@ import {
 } from 'lucide-react';
 import { Lembaga, Kelas, Santri, KategoriRombel, KelompokRombel, RombelAssignment } from '../../types';
 import SantriDetailModal from '../sekretaris/SantriDetailModal';
-import { PUTRA_AVATAR, PUTRI_AVATAR, renderSantriAvatar } from '../SekretarisHelper';
+import { PUTRA_AVATAR, PUTRI_AVATAR, renderSantriAvatar, calculateRealtimeAge } from '../SekretarisHelper';
+
+const MONTH_NAMES = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+];
 
 interface LembagaKelasSubProps {
   lembagasList: Lembaga[];
@@ -149,6 +154,7 @@ export default function LembagaKelasSub({
   const [kelBatasUsiaHari, setKelBatasUsiaHari] = useState<number>(1);
   const [kelBatasUsiaBulan, setKelBatasUsiaBulan] = useState<number>(7);
   const [kelBatasUsiaUmurMin, setKelBatasUsiaUmurMin] = useState<number>(7);
+  const [kelBatasUsiaUmurMax, setKelBatasUsiaUmurMax] = useState<number>(15);
 
   const getMonthName = (monthNum: number): string => {
     const months = [
@@ -243,6 +249,10 @@ export default function LembagaKelasSub({
   const [lemNama, setLemNama] = useState('');
   const [lemLogo, setLemLogo] = useState('');
   const [lemDeskripsi, setLemDeskripsi] = useState('');
+  const [taMulaiTanggal, setTaMulaiTanggal] = useState<number>(1);
+  const [taMulaiBulan, setTaMulaiBulan] = useState<number>(7);
+  const [taSelesaiTanggal, setTaSelesaiTanggal] = useState<number>(30);
+  const [taSelesaiBulan, setTaSelesaiBulan] = useState<number>(6);
 
   // Create / Edit Kelas (or Kelompok Rombel) Modal States
   const [isKelasModalOpen, setIsKelasModalOpen] = useState(false);
@@ -408,7 +418,11 @@ export default function LembagaKelasSub({
           gender: l.gender,
           jenis: getLembagaJenis(l),
           classesCount: classes.length,
-          studentsCount: studentsCount
+          studentsCount: studentsCount,
+          taMulaiTanggal: l.taMulaiTanggal,
+          taMulaiBulan: l.taMulaiBulan,
+          taSelesaiTanggal: l.taSelesaiTanggal,
+          taSelesaiBulan: l.taSelesaiBulan
         };
       });
     }
@@ -544,11 +558,19 @@ export default function LembagaKelasSub({
       setLemNama(lem.nama);
       setLemLogo(lem.logo || '');
       setLemDeskripsi(lem.deskripsi || '');
+      setTaMulaiTanggal(lem.taMulaiTanggal || 1);
+      setTaMulaiBulan(lem.taMulaiBulan || 7);
+      setTaSelesaiTanggal(lem.taSelesaiTanggal || 30);
+      setTaSelesaiBulan(lem.taSelesaiBulan || 6);
     } else {
       setEditingLembaga(null);
       setLemNama('');
       setLemLogo('');
       setLemDeskripsi('');
+      setTaMulaiTanggal(1);
+      setTaMulaiBulan(7);
+      setTaSelesaiTanggal(30);
+      setTaSelesaiBulan(6);
     }
     setIsLembagaModalOpen(true);
   };
@@ -596,11 +618,16 @@ export default function LembagaKelasSub({
       };
 
       if (editingLembaga) {
+        const { classesCount, studentsCount, ...cleanLembaga } = editingLembaga;
         await onUpdateLembaga({
-          ...editingLembaga,
+          ...cleanLembaga,
           nama: lemNama.trim(),
           logo: lemLogo || undefined,
-          deskripsi: lemDeskripsi.trim()
+          deskripsi: lemDeskripsi.trim(),
+          taMulaiTanggal,
+          taMulaiBulan,
+          taSelesaiTanggal,
+          taSelesaiBulan
         });
         showToast('Lembaga berhasil diperbarui.');
         if (selectedLembaga?.id === editingLembaga.id) {
@@ -608,7 +635,11 @@ export default function LembagaKelasSub({
             ...selectedLembaga,
             nama: lemNama.trim(),
             logo: lemLogo || undefined,
-            deskripsi: lemDeskripsi.trim()
+            deskripsi: lemDeskripsi.trim(),
+            taMulaiTanggal,
+            taMulaiBulan,
+            taSelesaiTanggal,
+            taSelesaiBulan
           });
         }
       } else {
@@ -629,7 +660,11 @@ export default function LembagaKelasSub({
           gender: selectedGender,
           jenis: activeTab,
           logo: lemLogo || undefined,
-          deskripsi: lemDeskripsi.trim()
+          deskripsi: lemDeskripsi.trim(),
+          taMulaiTanggal,
+          taMulaiBulan,
+          taSelesaiTanggal,
+          taSelesaiBulan
         });
 
         const actualLembagaId = savedLem?.id || newLembagaId;
@@ -682,6 +717,7 @@ export default function LembagaKelasSub({
       setKelBatasUsiaHari(kel.batasUsiaHari || 1);
       setKelBatasUsiaBulan(kel.batasUsiaBulan || 7);
       setKelBatasUsiaUmurMin(kel.batasUsiaUmurMin || 7);
+      setKelBatasUsiaUmurMax(kel.batasUsiaUmurMax || 15);
     } else {
       setEditingKelas(null);
       setKelNama('');
@@ -691,6 +727,7 @@ export default function LembagaKelasSub({
       setKelBatasUsiaHari(1);
       setKelBatasUsiaBulan(7);
       setKelBatasUsiaUmurMin(7);
+      setKelBatasUsiaUmurMax(15);
     }
     setIsKelasModalOpen(true);
   };
@@ -740,7 +777,8 @@ export default function LembagaKelasSub({
           kapasitas: Number(kelKapasitas),
           batasUsiaHari: Number(kelBatasUsiaHari),
           batasUsiaBulan: Number(kelBatasUsiaBulan),
-          batasUsiaUmurMin: Number(kelBatasUsiaUmurMin)
+          batasUsiaUmurMin: Number(kelBatasUsiaUmurMin),
+          batasUsiaUmurMax: Number(kelBatasUsiaUmurMax)
         });
         showToast('Kelas berhasil diperbarui.');
         if (selectedKelas?.id === editingKelas.id) {
@@ -752,7 +790,8 @@ export default function LembagaKelasSub({
             kapasitas: Number(kelKapasitas),
             batasUsiaHari: Number(kelBatasUsiaHari),
             batasUsiaBulan: Number(kelBatasUsiaBulan),
-            batasUsiaUmurMin: Number(kelBatasUsiaUmurMin)
+            batasUsiaUmurMin: Number(kelBatasUsiaUmurMin),
+            batasUsiaUmurMax: Number(kelBatasUsiaUmurMax)
           });
         }
       } else {
@@ -891,7 +930,20 @@ export default function LembagaKelasSub({
 
   // Render Student table avatars safely
   const renderStudentAvatar = (s: Santri) => {
-    return renderSantriAvatar(s, "w-10 h-10 text-xs font-black");
+    const age = calculateRealtimeAge(s.tanggalLahir);
+    return (
+      <div className="relative shrink-0 select-none">
+        {renderSantriAvatar(s, "w-10 h-10 text-xs font-black rounded-full overflow-hidden border border-slate-100 shadow-2xs")}
+        {age !== null && (
+          <span 
+            className="absolute -bottom-1 -left-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-emerald-600 text-[8px] font-black text-white border border-white shadow-xs" 
+            title={`Umur realtime: ${age} tahun`}
+          >
+            {age}
+          </span>
+        )}
+      </div>
+    );
   };
 
   const canWriteCurrent = selectedGender === 'Putra' ? canWritePutra : canWritePutri;
@@ -1343,6 +1395,13 @@ export default function LembagaKelasSub({
                   <p className="text-[11px] font-extrabold text-slate-400 mt-1 uppercase tracking-wider">
                     {subClasses.length} {activeTab === 'Rombel' ? 'Kelompok' : 'Kelas'} &bull; {institutions.find(x => x.id === selectedLembaga.id)?.studentsCount || 0} Santri
                   </p>
+
+                  {/* Academic Year Date Range */}
+                  {activeTab !== 'Rombel' && selectedLembaga.taMulaiTanggal !== undefined && (
+                    <span className="inline-flex items-center gap-1 mt-2.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wide bg-emerald-50 text-[#00693E] border border-emerald-100/60">
+                      Tahun Ajaran: {selectedLembaga.taMulaiTanggal} {MONTH_NAMES[(selectedLembaga.taMulaiBulan || 7) - 1]} - {selectedLembaga.taSelesaiTanggal} {MONTH_NAMES[(selectedLembaga.taSelesaiBulan || 6) - 1]}
+                    </span>
+                  )}
                 </div>
 
                 {/* Thin horizontal divider line */}
@@ -1558,33 +1617,34 @@ export default function LembagaKelasSub({
                     {/* 2. THREE BENTO STATS CARDS */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6 shrink-0">
                       
-                      {/* Card 1: Wali Kelas or Batas Usia */}
-                      {(() => {
-                        const isSelectedKelasDefault = activeTab !== 'Rombel' && (selectedKelas.id.endsWith('-default') || selectedKelas.nama.toLowerCase() === 'calon pelajar');
-                        if (isSelectedKelasDefault) {
-                          const refDay = selectedKelas.batasUsiaHari || 1;
-                          const refMonth = selectedKelas.batasUsiaBulan || 7;
-                          const minAge = selectedKelas.batasUsiaUmurMin || 7;
-                          const currentYear = new Date().getFullYear();
-                          return (
-                            <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs flex flex-col justify-between">
-                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2.5">BATAS USIA PENDAFTARAN</span>
-                              <div className="flex items-center gap-3">
-                                <div className="h-9 w-9 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
-                                  <Settings className="h-4.5 w-4.5 text-blue-600" />
-                                </div>
-                                <div className="flex flex-col min-w-0">
-                                  <span className="text-xs font-black text-slate-800 leading-none">
-                                    Min. {minAge} Tahun
-                                  </span>
-                                  <span className="text-[9px] font-bold text-slate-450 mt-1">
-                                    per {refDay} {getMonthName(refMonth)} {currentYear}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        } else {
+                       {/* Card 1: Wali Kelas or Batas Usia */}
+                       {(() => {
+                         const isSelectedKelasDefault = activeTab !== 'Rombel' && (selectedKelas.id.endsWith('-default') || selectedKelas.nama.toLowerCase() === 'calon pelajar');
+                         if (isSelectedKelasDefault) {
+                           const refDay = selectedKelas.batasUsiaHari || 1;
+                           const refMonth = selectedKelas.batasUsiaBulan || 7;
+                           const minAge = selectedKelas.batasUsiaUmurMin || 7;
+                           const maxAge = selectedKelas.batasUsiaUmurMax || 15;
+                           const currentYear = new Date().getFullYear();
+                           return (
+                             <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs flex flex-col justify-between">
+                               <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2.5">BATAS USIA PENDAFTARAN</span>
+                               <div className="flex items-center gap-3">
+                                 <div className="h-9 w-9 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
+                                   <Settings className="h-4.5 w-4.5 text-blue-600" />
+                                 </div>
+                                 <div className="flex flex-col min-w-0">
+                                   <span className="text-xs font-black text-slate-800 leading-none">
+                                     Usia {minAge} - {maxAge} Tahun
+                                   </span>
+                                   <span className="text-[9px] font-bold text-slate-450 mt-1">
+                                     per {refDay} {getMonthName(refMonth)} {currentYear}
+                                   </span>
+                                 </div>
+                               </div>
+                             </div>
+                           );
+                         } else {
                           return (
                             <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs flex flex-col justify-between">
                               <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2.5">WALI KELAS</span>
@@ -1755,16 +1815,28 @@ export default function LembagaKelasSub({
                         </div>
                         
                         <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setBulkDestClassId('');
-                              setIsBulkTransferOpen(true);
-                            }}
-                            className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-[10px] font-black uppercase tracking-wide cursor-pointer transition-colors shadow-3xs"
-                          >
-                            Pindah Masal
-                          </button>
+                          {(() => {
+                            const selectedStudents = santriList.filter(s => selectedStudentIds.includes(s.id));
+                            const hasUnregisteredEmis = selectedStudents.some(s => s.statusEmis !== 'Terdaftar');
+                            return (
+                              <button
+                                type="button"
+                                disabled={hasUnregisteredEmis}
+                                onClick={() => {
+                                  setBulkDestClassId('');
+                                  setIsBulkTransferOpen(true);
+                                }}
+                                className={`px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wide transition-colors shadow-3xs ${
+                                  hasUnregisteredEmis
+                                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                    : 'bg-emerald-700 hover:bg-emerald-800 text-white cursor-pointer'
+                                }`}
+                                title={hasUnregisteredEmis ? 'Tombol dinonaktifkan karena ada salah satu santri terpilih yang belum terdaftar EMIS' : 'Pindahkan semua santri terpilih'}
+                              >
+                                Pindah Masal
+                              </button>
+                            );
+                          })()}
                           <button
                             type="button"
                             onClick={handleBulkRemoveStudents}
@@ -1881,19 +1953,47 @@ export default function LembagaKelasSub({
                                   const idx = startIndex + localIdx;
                                   const isNisnValid = s.nisn && s.nisn.trim() !== '';
                                   const isSelected = selectedStudentIds.includes(s.id);
+                                  
+                                  // Check if age is invalid for Calon Pelajar
+                                  let isAgeInvalid = false;
+                                  let calculatedAge: number | null = null;
+                                  let minAge = 7;
+                                  let maxAge = 15;
+                                  if (isCalonPelajarPage && selectedKelas) {
+                                    const refDay = selectedKelas.batasUsiaHari || 1;
+                                    const refMonth = selectedKelas.batasUsiaBulan || 7;
+                                    minAge = selectedKelas.batasUsiaUmurMin !== undefined ? selectedKelas.batasUsiaUmurMin : 7;
+                                    maxAge = selectedKelas.batasUsiaUmurMax !== undefined ? selectedKelas.batasUsiaUmurMax : 15;
+                                    calculatedAge = calculateAgeAsOfReference(s.tanggalLahir, refDay, refMonth);
+                                    if (calculatedAge !== null) {
+                                      isAgeInvalid = calculatedAge < minAge || calculatedAge > maxAge;
+                                    }
+                                  }
+
+                                  const explanation = isAgeInvalid
+                                    ? `Peringatan: Usia santri (${calculatedAge} tahun) tidak memenuhi syarat usia ${minAge} - ${maxAge} tahun untuk kelas Calon Pelajar ${selectedLembaga?.nama || ''}.`
+                                    : undefined;
+
                                   const stickyBg = isSelectionMode && isSelected
                                     ? 'bg-[#eaf7f0] group-hover/row:bg-[#dff3e8]'
-                                    : 'bg-white group-hover/row:bg-slate-50';
+                                    : isAgeInvalid
+                                      ? 'bg-rose-50/95 group-hover/row:bg-rose-100'
+                                      : 'bg-white group-hover/row:bg-slate-50';
                                   
                                   const rowBgClass = isSelectionMode && isSelected
                                     ? 'bg-[#eaf7f0]/60 hover:bg-[#dff3e8]/70'
-                                    : 'hover:bg-slate-50/30';
+                                    : isAgeInvalid
+                                      ? 'bg-rose-50/50 hover:bg-rose-100/50 text-rose-950 border-rose-100/80'
+                                      : 'hover:bg-slate-50/30';
                                   
                                   return (
                                     <div 
                                       key={s.id} 
                                       onClick={(e) => handleRowClick(e, s)}
-                                      className={`grid ${gridColsClass} items-stretch text-xs text-slate-700 font-semibold transition-colors group/row ${
+                                      title={explanation}
+                                      className={`grid ${gridColsClass} items-stretch text-xs transition-colors group/row ${
+                                        isAgeInvalid ? 'text-rose-950' : 'text-slate-700'
+                                      } ${
                                         isSelectionMode ? 'cursor-pointer' : ''
                                       } ${rowBgClass}`}
                                     >
@@ -1938,17 +2038,20 @@ export default function LembagaKelasSub({
                                                 const refDay = selectedKelas.batasUsiaHari || 1;
                                                 const refMonth = selectedKelas.batasUsiaBulan || 7;
                                                 const minAge = selectedKelas.batasUsiaUmurMin || 7;
+                                                const maxAge = selectedKelas.batasUsiaUmurMax || 15;
                                                 const calculatedAge = calculateAgeAsOfReference(s.tanggalLahir, refDay, refMonth);
                                                 
                                                 if (calculatedAge !== null) {
                                                   const isUnderAge = calculatedAge < minAge;
+                                                  const isOverAge = calculatedAge > maxAge;
+                                                  const isAgeInvalid = isUnderAge || isOverAge;
                                                   return (
                                                     <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wide leading-none shrink-0 ${
-                                                      isUnderAge 
+                                                      isAgeInvalid 
                                                         ? 'bg-rose-50 text-rose-600 border border-rose-100' 
                                                         : 'bg-emerald-50 text-emerald-750 border border-emerald-100'
-                                                    }`} title={`Usia per tanggal batas: ${calculatedAge} tahun (Syarat: Min. ${minAge} tahun)`}>
-                                                      {calculatedAge} Thn {isUnderAge ? '(!)' : '✓'}
+                                                    }`} title={`Usia per tanggal batas: ${calculatedAge} tahun (Syarat: ${minAge} - ${maxAge} tahun)`}>
+                                                      {calculatedAge} Thn {isAgeInvalid ? '(!)' : '✓'}
                                                     </span>
                                                   );
                                                 }
@@ -2203,6 +2306,64 @@ export default function LembagaKelasSub({
                       />
                     </div>
 
+                    {/* Rentang Tahun Ajaran (Tanggal dan Bulan) */}
+                    <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-3.5 space-y-3.5">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">RENTANG TAHUN AJARAN</span>
+                      <div className="grid grid-cols-2 gap-3.5">
+                        <div className="space-y-1">
+                          <label className="block text-[9px] font-black text-slate-500 uppercase tracking-wider">
+                            Mulai
+                          </label>
+                          <div className="grid grid-cols-5 gap-1">
+                            <select
+                              value={taMulaiTanggal}
+                              onChange={(e) => setTaMulaiTanggal(Number(e.target.value))}
+                              className="col-span-2 rounded-lg border border-slate-200 py-1.5 px-2 text-xs focus:border-emerald-500 outline-none font-semibold text-slate-700 bg-white"
+                            >
+                              {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                                <option key={d} value={d}>{d}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={taMulaiBulan}
+                              onChange={(e) => setTaMulaiBulan(Number(e.target.value))}
+                              className="col-span-3 rounded-lg border border-slate-200 py-1.5 px-2 text-xs focus:border-emerald-500 outline-none font-semibold text-slate-700 bg-white"
+                            >
+                              {MONTH_NAMES.map((m, idx) => (
+                                <option key={idx + 1} value={idx + 1}>{m}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="block text-[9px] font-black text-slate-500 uppercase tracking-wider">
+                            Selesai
+                          </label>
+                          <div className="grid grid-cols-5 gap-1">
+                            <select
+                              value={taSelesaiTanggal}
+                              onChange={(e) => setTaSelesaiTanggal(Number(e.target.value))}
+                              className="col-span-2 rounded-lg border border-slate-200 py-1.5 px-2 text-xs focus:border-emerald-500 outline-none font-semibold text-slate-700 bg-white"
+                            >
+                              {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                                <option key={d} value={d}>{d}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={taSelesaiBulan}
+                              onChange={(e) => setTaSelesaiBulan(Number(e.target.value))}
+                              className="col-span-3 rounded-lg border border-slate-200 py-1.5 px-2 text-xs focus:border-emerald-500 outline-none font-semibold text-slate-700 bg-white"
+                            >
+                              {MONTH_NAMES.map((m, idx) => (
+                                <option key={idx + 1} value={idx + 1}>{m}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
                         Logo Lembaga (Opsional)
@@ -2346,42 +2507,8 @@ export default function LembagaKelasSub({
                             Atur Batas Usia Calon Pelajar
                           </span>
                           
+                          {/* Kolom Minimal dan Maksimal */}
                           <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                                Batas Tanggal & Bulan
-                              </label>
-                              <div className="flex gap-1.5">
-                                <select
-                                  value={kelBatasUsiaHari}
-                                  onChange={(e) => setKelBatasUsiaHari(Number(e.target.value))}
-                                  className="w-16 rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-bold text-slate-600 focus:border-emerald-500 outline-none"
-                                >
-                                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
-                                    <option key={d} value={d}>{d}</option>
-                                  ))}
-                                </select>
-                                <select
-                                  value={kelBatasUsiaBulan}
-                                  onChange={(e) => setKelBatasUsiaBulan(Number(e.target.value))}
-                                  className="flex-1 rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-bold text-slate-600 focus:border-emerald-500 outline-none"
-                                >
-                                  <option value={1}>Januari</option>
-                                  <option value={2}>Februari</option>
-                                  <option value={3}>Maret</option>
-                                  <option value={4}>April</option>
-                                  <option value={5}>Mei</option>
-                                  <option value={6}>Juni</option>
-                                  <option value={7}>Juli</option>
-                                  <option value={8}>Agustus</option>
-                                  <option value={9}>September</option>
-                                  <option value={10}>Oktober</option>
-                                  <option value={11}>November</option>
-                                  <option value={12}>Desember</option>
-                                </select>
-                              </div>
-                            </div>
-
                             <div>
                               <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
                                 Batas Usia Min (Tahun)
@@ -2395,10 +2522,60 @@ export default function LembagaKelasSub({
                                 className="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-mono font-bold text-slate-700 focus:border-emerald-500 outline-none"
                               />
                             </div>
+
+                            <div>
+                              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                                Batas Usia Max (Tahun)
+                              </label>
+                              <input
+                                type="number"
+                                value={kelBatasUsiaUmurMax}
+                                onChange={(e) => setKelBatasUsiaUmurMax(Number(e.target.value))}
+                                min={1}
+                                max={100}
+                                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-mono font-bold text-slate-700 focus:border-emerald-500 outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Di bawahnya: "per (kolom tanggal) (kolom bulan) Tahun ajar" */}
+                          <div className="flex flex-col gap-1.5 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                            <span className="text-[10px] font-bold text-slate-500">Rujukan batas tanggal perhitungan:</span>
+                            <div className="flex items-center gap-2 text-xs font-medium text-slate-700">
+                              <span>per</span>
+                              <select
+                                value={kelBatasUsiaHari}
+                                onChange={(e) => setKelBatasUsiaHari(Number(e.target.value))}
+                                className="w-16 rounded-xl border border-slate-200 bg-white p-2 text-xs font-bold text-slate-600 focus:border-emerald-500 outline-none"
+                              >
+                                {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                                  <option key={d} value={d}>{d}</option>
+                                ))}
+                              </select>
+                              <select
+                                value={kelBatasUsiaBulan}
+                                onChange={(e) => setKelBatasUsiaBulan(Number(e.target.value))}
+                                className="rounded-xl border border-slate-200 bg-white p-2 text-xs font-bold text-slate-600 focus:border-emerald-500 outline-none"
+                              >
+                                <option value={1}>Januari</option>
+                                <option value={2}>Februari</option>
+                                <option value={3}>Maret</option>
+                                <option value={4}>April</option>
+                                <option value={5}>Mei</option>
+                                <option value={6}>Juni</option>
+                                <option value={7}>Juli</option>
+                                <option value={8}>Agustus</option>
+                                <option value={9}>September</option>
+                                <option value={10}>Oktober</option>
+                                <option value={11}>November</option>
+                                <option value={12}>Desember</option>
+                              </select>
+                              <span>Tahun ajar</span>
+                            </div>
                           </div>
                           
                           <p className="text-[10px] font-medium text-slate-400 italic leading-relaxed">
-                            Sistem akan menghitung usia santri pendaftar saat tanggal tersebut di tahun berjalan.
+                            Sistem akan menghitung usia santri pendaftar saat tanggal tersebut di tahun berjalan untuk memverifikasi rentang kelayakan pendaftaran.
                           </p>
                         </div>
                       )}
@@ -2453,23 +2630,30 @@ export default function LembagaKelasSub({
                   Pindahkan <strong className="text-slate-800 font-extrabold">{transferStudent.nama}</strong> dari kelas/kelompok <strong className="text-emerald-700 font-extrabold">"{selectedKelas.nama}"</strong> ke:
                 </p>
 
-                <div>
-                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Pilih Kelas Tujuan</label>
-                  <select
-                    value={destClassId}
-                    onChange={(e) => setDestClassId(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-750 focus:border-emerald-500 outline-none cursor-pointer"
-                  >
-                    <option value="">-- Pilih Kelas --</option>
-                    {subClasses
-                      .filter(c => c.id !== selectedKelas.id)
-                      .map(c => (
-                        <option key={c.id} value={c.id}>
-                          {c.nama} ({c.waliKelas})
-                        </option>
-                      ))}
-                  </select>
-                </div>
+                {subClasses.filter(c => c.id !== selectedKelas.id).length === 0 ? (
+                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 font-medium leading-relaxed">
+                    <span className="font-extrabold block mb-0.5">⚠️ Tidak ada kelas tujuan lain</span>
+                    Lembaga ini belum memiliki kelas tujuan lain yang terdaftar. Silakan buat kelas baru terlebih dahulu melalui tombol <strong>"Tambah Kelas"</strong> sebelum memindahkan santri.
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Pilih Kelas Tujuan</label>
+                    <select
+                      value={destClassId}
+                      onChange={(e) => setDestClassId(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-750 focus:border-emerald-500 outline-none cursor-pointer"
+                    >
+                      <option value="">-- Pilih Kelas --</option>
+                      {subClasses
+                        .filter(c => c.id !== selectedKelas.id)
+                        .map(c => (
+                          <option key={c.id} value={c.id}>
+                            {c.nama} ({c.waliKelas})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-2">
@@ -2522,23 +2706,30 @@ export default function LembagaKelasSub({
                   Pindahkan <strong className="text-slate-800 font-extrabold">{selectedStudentIds.length} santri terpilih</strong> dari kelas/kelompok <strong className="text-emerald-700 font-extrabold">"{selectedKelas.nama}"</strong> ke:
                 </p>
 
-                <div>
-                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Pilih Kelas Tujuan</label>
-                  <select
-                    value={bulkDestClassId}
-                    onChange={(e) => setBulkDestClassId(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-750 focus:border-emerald-500 outline-none cursor-pointer"
-                  >
-                    <option value="">-- Pilih Kelas --</option>
-                    {subClasses
-                      .filter(c => c.id !== selectedKelas.id)
-                      .map(c => (
-                        <option key={c.id} value={c.id}>
-                          {c.nama} ({(c as any).waliKelas || (c as any).pembimbing || '-'})
-                        </option>
-                      ))}
-                  </select>
-                </div>
+                {subClasses.filter(c => c.id !== selectedKelas.id).length === 0 ? (
+                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 font-medium leading-relaxed">
+                    <span className="font-extrabold block mb-0.5">⚠️ Tidak ada kelas tujuan lain</span>
+                    Lembaga ini belum memiliki kelas tujuan lain yang terdaftar. Silakan buat kelas baru terlebih dahulu melalui tombol <strong>"Tambah Kelas"</strong> sebelum memindahkan santri.
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Pilih Kelas Tujuan</label>
+                    <select
+                      value={bulkDestClassId}
+                      onChange={(e) => setBulkDestClassId(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-750 focus:border-emerald-500 outline-none cursor-pointer"
+                    >
+                      <option value="">-- Pilih Kelas --</option>
+                      {subClasses
+                        .filter(c => c.id !== selectedKelas.id)
+                        .map(c => (
+                          <option key={c.id} value={c.id}>
+                            {c.nama} ({(c as any).waliKelas || (c as any).pembimbing || '-'})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-2">
@@ -2809,13 +3000,19 @@ export default function LembagaKelasSub({
                       <span>Pilih</span>
                     </button>
                     <button
+                      disabled={s.statusEmis !== 'Terdaftar'}
                       onClick={() => {
                         setTransferStudent(s);
                         setDestClassId('');
                         setActiveActionStudentId(null);
                         setStudentDropdownPos(null);
                       }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-blue-700 transition-colors cursor-pointer block"
+                      className={`w-full text-left px-3 py-1.5 transition-colors cursor-pointer block ${
+                        s.statusEmis !== 'Terdaftar'
+                          ? 'opacity-40 cursor-not-allowed text-slate-300 bg-slate-50/20'
+                          : 'hover:bg-slate-50 hover:text-blue-700'
+                      }`}
+                      title={s.statusEmis !== 'Terdaftar' ? 'Opsi pindah dinonaktifkan karena santri belum terdaftar EMIS' : undefined}
                     >
                       <span>Pindah</span>
                     </button>

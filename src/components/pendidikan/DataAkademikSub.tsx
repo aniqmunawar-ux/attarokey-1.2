@@ -24,7 +24,7 @@ import {
   MoreVertical
 } from 'lucide-react';
 import { Santri, Lembaga, Kelas, KategoriRombel, KelompokRombel, RombelAssignment } from '../../types';
-import { renderSantriAvatar, getPesantrenProfile } from '../SekretarisHelper';
+import { renderSantriAvatar, getPesantrenProfile, calculateRealtimeAge } from '../SekretarisHelper';
 import SantriDetailModal from '../sekretaris/SantriDetailModal';
 
 interface DataAkademikSubProps {
@@ -1628,7 +1628,17 @@ export default function DataAkademikSub({
                           : 'bg-white group-hover:bg-slate-50'
                       }`}>
                         <div className="flex items-center gap-3">
-                          {renderSantriAvatar(s, "h-9 w-9 shrink-0 rounded-full border border-slate-100 shadow-xs")}
+                          <div className="relative shrink-0 select-none">
+                            {renderSantriAvatar(s, "h-9 w-9 shrink-0 rounded-full border border-slate-100 shadow-xs")}
+                            {(() => {
+                              const age = calculateRealtimeAge(s.tanggalLahir);
+                              return age !== null ? (
+                                <span className="absolute -bottom-1 -left-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-emerald-600 text-[8px] font-black text-white border border-white shadow-xs" title={`Umur realtime: ${age} tahun`}>
+                                  {age}
+                                </span>
+                              ) : null;
+                            })()}
+                          </div>
                           <p className="font-display text-sm font-bold text-slate-900 leading-tight">
                             {s.nama}
                           </p>

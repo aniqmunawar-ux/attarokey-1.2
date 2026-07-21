@@ -166,6 +166,10 @@ CREATE TABLE IF NOT EXISTS lembaga (
     gender VARCHAR(10) DEFAULT 'Putra' CHECK (gender IN ('Putra', 'Putri')),
     jenis VARCHAR(20) DEFAULT 'Formal' CHECK (jenis IN ('Formal', 'Internal')),
     logo TEXT,
+    ta_mulai_tanggal INT DEFAULT 1,
+    ta_mulai_bulan INT DEFAULT 7,
+    ta_selesai_tanggal INT DEFAULT 30,
+    ta_selesai_bulan INT DEFAULT 6,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
     CONSTRAINT lembaga_kode_gender_key UNIQUE (kode, gender)
 );
@@ -186,6 +190,26 @@ BEGIN
     -- Tambah kolom logo jika belum ada
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lembaga' AND column_name='logo') THEN
         ALTER TABLE lembaga ADD COLUMN logo TEXT;
+    END IF;
+
+    -- Tambah kolom ta_mulai_tanggal jika belum ada
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lembaga' AND column_name='ta_mulai_tanggal') THEN
+        ALTER TABLE lembaga ADD COLUMN ta_mulai_tanggal INT DEFAULT 1;
+    END IF;
+
+    -- Tambah kolom ta_mulai_bulan jika belum ada
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lembaga' AND column_name='ta_mulai_bulan') THEN
+        ALTER TABLE lembaga ADD COLUMN ta_mulai_bulan INT DEFAULT 7;
+    END IF;
+
+    -- Tambah kolom ta_selesai_tanggal jika belum ada
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lembaga' AND column_name='ta_selesai_tanggal') THEN
+        ALTER TABLE lembaga ADD COLUMN ta_selesai_tanggal INT DEFAULT 30;
+    END IF;
+
+    -- Tambah kolom ta_selesai_bulan jika belum ada
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lembaga' AND column_name='ta_selesai_bulan') THEN
+        ALTER TABLE lembaga ADD COLUMN ta_selesai_bulan INT DEFAULT 6;
     END IF;
 
     -- Hapus constraint lama yang membuat kode unik global (jika ada)

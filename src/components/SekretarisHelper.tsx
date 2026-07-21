@@ -210,6 +210,33 @@ export const renderSantriAvatar = (s: Santri, className: string = "h-10 w-10 tex
   );
 };
 
+export const calculateRealtimeAge = (birthDateStr?: string): number | null => {
+  if (!birthDateStr) return null;
+  let birthDate: Date;
+  try {
+    if (birthDateStr.includes('-')) {
+      const parts = birthDateStr.split('-');
+      if (parts[0].length === 4) {
+        birthDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+      } else {
+        birthDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+      }
+    } else {
+      birthDate = new Date(birthDateStr);
+    }
+    if (isNaN(birthDate.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return age;
+  } catch (e) {
+    return null;
+  }
+};
+
 export function PrintTemplate({ printableSantri, renderSantriAvatar: customRenderSantriAvatar }: { printableSantri: Santri | null, renderSantriAvatar?: (s: Santri, cls: string, isRect?: boolean) => React.ReactNode }) {
   if (!printableSantri) return null;
   const avatarRenderer = customRenderSantriAvatar || renderSantriAvatar;

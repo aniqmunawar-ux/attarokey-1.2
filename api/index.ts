@@ -389,7 +389,7 @@ function extractMissingColumn(errMessage: string): string | null {
 }
 
 // Dynamically insert rows, stripping any columns that do not exist in the database and retrying
-async function performInsertWithRetry(client: any, table: string, body: any, attemptsLeft = 5): Promise<{ data: any; error: any }> {
+async function performInsertWithRetry(client: any, table: string, body: any, attemptsLeft = 15): Promise<{ data: any; error: any }> {
   const { data, error } = await client.from(table).insert(body).select();
   if (error && attemptsLeft > 0) {
     const errMessage = error.message || "";
@@ -417,7 +417,7 @@ async function performInsertWithRetry(client: any, table: string, body: any, att
 }
 
 // Dynamically update rows, stripping any columns that do not exist in the database and retrying
-async function performUpdateWithRetry(client: any, table: string, id: string, body: any, attemptsLeft = 5): Promise<{ data: any; error: any }> {
+async function performUpdateWithRetry(client: any, table: string, id: string, body: any, attemptsLeft = 15): Promise<{ data: any; error: any }> {
   const { data, error } = await client.from(table).update(body).eq("id", id).select();
   if (error && attemptsLeft > 0) {
     const errMessage = error.message || "";

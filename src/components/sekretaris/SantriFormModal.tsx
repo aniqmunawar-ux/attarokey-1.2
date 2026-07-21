@@ -273,6 +273,36 @@ export default function SantriFormModal({
     return 'Formal';
   };
 
+  const calculateAgeAsOfReference = (birthDateStr?: string, refDay?: number, refMonth?: number): number | null => {
+    if (!birthDateStr) return null;
+    let birthDate: Date;
+    try {
+      if (birthDateStr.includes('-')) {
+        const parts = birthDateStr.split('-');
+        if (parts[0].length === 4) {
+          birthDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        } else {
+          birthDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+        }
+      } else {
+        birthDate = new Date(birthDateStr);
+      }
+      if (isNaN(birthDate.getTime())) return null;
+      const currentYear = new Date().getFullYear();
+      const targetDay = refDay || 1;
+      const targetMonth = (refMonth || 7) - 1;
+      const referenceDate = new Date(currentYear, targetMonth, targetDay);
+      let age = referenceDate.getFullYear() - birthDate.getFullYear();
+      const m = referenceDate.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && referenceDate.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      return age;
+    } catch (e) {
+      return null;
+    }
+  };
+
   useEffect(() => {
     if (isOpen && scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
@@ -1864,7 +1894,31 @@ export default function SantriFormModal({
                             >
                               <option value="">-- Tidak Mengikuti --</option>
                               {lembagasList
-                                .filter(l => getLembagaJenis(l) === 'Formal' && (form.gender ? l.gender === form.gender : true))
+                                .filter(l => {
+                                  if (getLembagaJenis(l) !== 'Formal') return false;
+                                  if (form.gender && l.gender !== form.gender) return false;
+                                  
+                                  // Age rules check if birth date is specified
+                                  if (form.tanggalLahir) {
+                                    const calonPelajarClass = kelasList.find(
+                                      k => k.lembagaId === l.id && k.nama.toLowerCase() === 'calon pelajar'
+                                    );
+                                    if (calonPelajarClass) {
+                                      const refDay = calonPelajarClass.batasUsiaHari || 1;
+                                      const refMonth = calonPelajarClass.batasUsiaBulan || 7;
+                                      const minAge = calonPelajarClass.batasUsiaUmurMin !== undefined ? calonPelajarClass.batasUsiaUmurMin : 7;
+                                      const maxAge = calonPelajarClass.batasUsiaUmurMax !== undefined ? calonPelajarClass.batasUsiaUmurMax : 15;
+                                      
+                                      const age = calculateAgeAsOfReference(form.tanggalLahir, refDay, refMonth);
+                                      if (age !== null) {
+                                        if (age < minAge || age > maxAge) {
+                                          return false; // Filter out if invalid age
+                                        }
+                                      }
+                                    }
+                                  }
+                                  return true;
+                                })
                                 .map(l => (
                                   <option key={l.id} value={l.id}>{l.nama} ({l.kode})</option>
                                 ))
