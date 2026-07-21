@@ -4,7 +4,8 @@ import {
   School, Plus, Trash2, Edit, Users, BookOpen, ChevronRight, ChevronLeft,
   ArrowLeft, Search, GraduationCap, ArrowLeftRight, Check, CheckCircle2, 
   UserCheck, AlertCircle, X, MoreVertical, Award, ShieldAlert, UserMinus, ArrowRightLeft,
-  Folder, FolderOpen, User, ArrowUpDown, Pencil, Settings, UserPlus, ArrowUp, ArrowDown
+  Folder, FolderOpen, User, ArrowUpDown, Pencil, Settings, UserPlus, ArrowUp, ArrowDown,
+  ChevronDown
 } from 'lucide-react';
 import { Lembaga, Kelas, Santri, KategoriRombel, KelompokRombel, RombelAssignment } from '../../types';
 import SantriDetailModal from '../sekretaris/SantriDetailModal';
@@ -90,6 +91,7 @@ export default function LembagaKelasSub({
   
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('Semua');
   const [activeActionStudentId, setActiveActionStudentId] = useState<string | null>(null);
   const [activeActionKelasId, setActiveActionKelasId] = useState<string | null>(null);
   const [kelasDropdownPos, setKelasDropdownPos] = useState<{ top: number; left: number } | null>(null);
@@ -450,15 +452,41 @@ export default function LembagaKelasSub({
 
   const currentClassStudents = getStudentsInSelectedClass();
 
-  // Filtered students by search query
+  // Filtered students by search query and status filter
   const searchedStudents = currentClassStudents.filter(s => {
     const q = searchQuery.toLowerCase();
-    return (
+    const matchesSearch = (
       s.nama.toLowerCase().includes(q) ||
       (s.nis && s.nis.toLowerCase().includes(q)) ||
       (s.nisn && s.nisn.toLowerCase().includes(q)) ||
       (s.nism && s.nism.toLowerCase().includes(q))
     );
+
+    if (!matchesSearch) return false;
+
+    // Apply status filter
+    if (statusFilter && statusFilter !== 'Semua') {
+      const isCP = !!(selectedKelas && selectedKelas.nama.toLowerCase() === 'calon pelajar');
+      if (isCP) {
+        // Status EMIS filter: 'Terdaftar' or 'Belum'
+        const isTerdaftar = s.statusEmis === 'Terdaftar';
+        if (statusFilter === 'Terdaftar') {
+          return isTerdaftar;
+        } else if (statusFilter === 'Belum') {
+          return !isTerdaftar;
+        }
+      } else {
+        // Status Verval filter: 'Sukses' or 'Proses'
+        const isSukses = !!(s.nisn && s.nisn.trim() !== '');
+        if (statusFilter === 'Sukses') {
+          return isSukses;
+        } else if (statusFilter === 'Proses') {
+          return !isSukses;
+        }
+      }
+    }
+
+    return true;
   });
 
   // Sort and filter students
@@ -506,6 +534,7 @@ export default function LembagaKelasSub({
     setCurrentPage(1);
     setSortField(null);
     setSortDirection('asc');
+    setStatusFilter('Semua');
   }, [selectedKelas]);
 
   // --- CRUD Handlers ---
@@ -872,6 +901,13 @@ export default function LembagaKelasSub({
   const verifiedCount = currentClassStudents.filter(s => s.nisn && s.nisn.trim() !== '').length;
   const pendingCount = totalStudents - verifiedCount;
   const verifiedPercent = totalStudents > 0 ? Math.round((verifiedCount / totalStudents) * 100) : 0;
+  const pendingPercent = totalStudents > 0 ? 100 - verifiedPercent : 0;
+
+  // Compute EMIS stats
+  const emisRegisteredCount = currentClassStudents.filter(s => s.statusEmis === 'Terdaftar').length;
+  const emisBelumCount = totalStudents - emisRegisteredCount;
+  const emisRegisteredPercent = totalStudents > 0 ? Math.round((emisRegisteredCount / totalStudents) * 100) : 0;
+  const emisBelumPercent = totalStudents > 0 ? 100 - emisRegisteredPercent : 0;
 
   // Pagination & Students logic calculated at component root for consistent sharing
   const itemsPerPage = 10;
@@ -879,6 +915,11 @@ export default function LembagaKelasSub({
   const activePage = Math.min(currentPage, totalPages);
   const startIndex = (activePage - 1) * itemsPerPage;
   const paginatedStudents = filteredStudents.slice(startIndex, startIndex + itemsPerPage);
+
+  const isCalonPelajarPage = !!(selectedKelas && selectedKelas.nama.toLowerCase() === 'calon pelajar');
+  const gridColsClass = isCalonPelajarPage
+    ? 'grid-cols-[55px_240px_120px_115px_105px_100px_110px_75px]'
+    : 'grid-cols-[55px_240px_135px_135px_140px_140px_75px]';
 
   // Toggle selection for individual student
   const handleToggleStudentSelection = (studentId: string) => {
@@ -1573,21 +1614,134 @@ export default function LembagaKelasSub({
                         </div>
                       </div>
 
-                      {/* Card 3: Verval Status */}
-                      <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs flex flex-col justify-between">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2.5">VERVAL STATUS</span>
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div>
-                            <span className="text-lg font-black text-[#046A38] block leading-none">{verifiedCount}</span>
-                            <span className="text-[10px] font-extrabold text-emerald-700">Sukses</span>
-                          </div>
-                          <div>
-                            <span className="text-lg font-black text-rose-600 block leading-none">{pendingCount}</span>
-                            <span className="text-[10px] font-extrabold text-rose-600">Proses</span>
+                      {/* Card 3: Verval / EMIS Status Bar Chart */}
+                      {isCalonPelajarPage ? (
+                        <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs flex flex-col justify-between min-h-[105px]">
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2">STATUS EMIS</span>
+                          <div className="flex flex-col gap-2">
+                            {/* Row 1: Terdaftar */}
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
+                                <span className="text-blue-700">Terdaftar</span>
+                                <span>{emisRegisteredCount} ({emisRegisteredPercent}%)</span>
+                              </div>
+                              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                <div 
+                                  className="bg-blue-600 h-full rounded-full transition-all duration-500" 
+                                  style={{ width: `${emisRegisteredPercent}%` }}
+                                />
+                              </div>
+                            </div>
+                            {/* Row 2: Belum */}
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
+                                <span className="text-amber-700">Belum</span>
+                                <span>{emisBelumCount} ({emisBelumPercent}%)</span>
+                              </div>
+                              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                <div 
+                                  className="bg-amber-500 h-full rounded-full transition-all duration-500" 
+                                  style={{ width: `${emisBelumPercent}%` }}
+                                />
+                              </div>
+                            </div>
                           </div>
                         </div>
+                      ) : (
+                        <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs flex flex-col justify-between min-h-[105px]">
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2">STATUS VERVAL</span>
+                          <div className="flex flex-col gap-2">
+                            {/* Row 1: Sukses */}
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
+                                <span className="text-emerald-700">Sukses</span>
+                                <span>{verifiedCount} ({verifiedPercent}%)</span>
+                              </div>
+                              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                <div 
+                                  className="bg-[#00693E] h-full rounded-full transition-all duration-500" 
+                                  style={{ width: `${verifiedPercent}%` }}
+                                />
+                              </div>
+                            </div>
+                            {/* Row 2: Proses */}
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
+                                <span className="text-rose-600">Proses</span>
+                                <span>{pendingCount} ({pendingPercent}%)</span>
+                              </div>
+                              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                <div 
+                                  className="bg-rose-500 h-full rounded-full transition-all duration-500" 
+                                  style={{ width: `${pendingPercent}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+
+                    {/* 2.5 SEARCH BOX & FILTER ABOVE THE TABLE */}
+                    <div className="mb-4 shrink-0 flex flex-col sm:flex-row gap-3">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => {
+                            setSearchQuery(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          placeholder="Cari berdasarkan nama, NIS, NISN, atau NISM..."
+                          className="w-full h-11 pl-11 pr-10 bg-slate-50 border border-slate-100/80 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-450 focus:outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600/20 focus:border-[#00693E] transition-all shadow-3xs"
+                        />
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center pointer-events-none">
+                          <Search className="h-4.5 w-4.5 text-slate-400" />
+                        </div>
+                        {searchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSearchQuery('');
+                              setCurrentPage(1);
+                            }}
+                            className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 cursor-pointer rounded-full hover:bg-slate-100 transition-all flex items-center justify-center"
+                            title="Bersihkan Pencarian"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
 
+                      {/* Status Filter Select */}
+                      <div className="w-full sm:w-48 shrink-0 relative">
+                        <select
+                          value={statusFilter}
+                          onChange={(e) => {
+                            setStatusFilter(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          className="w-full h-11 pl-4 pr-10 bg-slate-50 border border-slate-100/80 rounded-2xl text-xs font-bold text-slate-750 focus:outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600/20 focus:border-[#00693E] appearance-none transition-all shadow-3xs cursor-pointer"
+                        >
+                          {isCalonPelajarPage ? (
+                            <>
+                              <option value="Semua">Semua EMIS</option>
+                              <option value="Terdaftar">Terdaftar</option>
+                              <option value="Belum">Belum Terdaftar</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="Semua">Semua Verval</option>
+                              <option value="Sukses">Sukses</option>
+                              <option value="Proses">Proses</option>
+                            </>
+                          )}
+                        </select>
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 flex items-center">
+                          <ChevronDown className="h-4 w-4" />
+                        </div>
+                      </div>
                     </div>
 
                     {/* Bulk Selection Action Bar (Text only action triggers) */}
@@ -1682,7 +1836,7 @@ export default function LembagaKelasSub({
                             
                             {/* Header Tabel Box */}
                             <div className="border-b border-slate-100 bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-wider shrink-0 sticky top-0 z-30">
-                              <div className="grid grid-cols-[55px_240px_120px_115px_100px_105px_110px_75px] items-stretch">
+                              <div className={`grid ${gridColsClass} items-stretch`}>
                                 <div className="sticky left-0 z-30 bg-slate-50 text-center select-none pl-6 py-4 flex items-center justify-center border-r border-slate-100/60">
                                   {isSelectionMode ? (
                                     <input
@@ -1705,8 +1859,10 @@ export default function LembagaKelasSub({
                                 {renderSortableHeader('Profil', 'nama', 'sticky left-[55px] z-30 bg-slate-50 pl-2 py-4 border-r border-slate-100/60')}
                                 {renderSortableHeader('NISN', 'nisn', 'pl-3 py-4 bg-slate-50 border-r border-slate-100/60')}
                                 {renderSortableHeader('NISM', 'nism', 'pl-3 py-4 bg-slate-50 border-r border-slate-100/60')}
-                                <div className="select-none font-bold text-slate-400 pl-3 py-4 flex items-center bg-slate-50 border-r border-slate-100/60">EMIS</div>
                                 {renderSortableHeader('Status', 'statusKeanggotaan', 'pl-3 py-4 bg-slate-50 border-r border-slate-100/60')}
+                                {isCalonPelajarPage && (
+                                  <div className="select-none font-bold text-slate-400 pl-3 py-4 flex items-center bg-slate-50 border-r border-slate-100/60">EMIS</div>
+                                )}
                                 <div className="select-none font-bold text-slate-400 pl-3 py-4 flex items-center bg-slate-50 border-r border-slate-100/60">Verval</div>
                                 <div className="sticky right-0 z-30 bg-slate-50 select-none pr-6 py-4 flex items-center justify-end font-bold text-slate-400">
                                   Aksi
@@ -1737,7 +1893,7 @@ export default function LembagaKelasSub({
                                     <div 
                                       key={s.id} 
                                       onClick={(e) => handleRowClick(e, s)}
-                                      className={`grid grid-cols-[55px_240px_120px_115px_100px_105px_110px_75px] items-stretch text-xs text-slate-700 font-semibold transition-colors group/row ${
+                                      className={`grid ${gridColsClass} items-stretch text-xs text-slate-700 font-semibold transition-colors group/row ${
                                         isSelectionMode ? 'cursor-pointer' : ''
                                       } ${rowBgClass}`}
                                     >
@@ -1824,17 +1980,6 @@ export default function LembagaKelasSub({
                                         {s.nism || <span className="text-slate-300">-</span>}
                                       </div>
 
-                                      {/* EMIS Column */}
-                                      <div className="pl-1 py-4.5 flex items-center">
-                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide ${
-                                          s.statusEmis === 'Terdaftar'
-                                            ? 'bg-blue-50 text-blue-700'
-                                            : 'bg-amber-50 text-amber-700'
-                                        }`}>
-                                          {s.statusEmis || 'Belum'}
-                                        </span>
-                                      </div>
-
                                       {/* Status */}
                                       <div className="font-semibold pl-1 py-4.5 flex items-center">
                                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide ${
@@ -1845,6 +1990,19 @@ export default function LembagaKelasSub({
                                           {s.statusKeanggotaan}
                                         </span>
                                       </div>
+
+                                      {/* EMIS Column */}
+                                      {isCalonPelajarPage && (
+                                        <div className="pl-1 py-4.5 flex items-center">
+                                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide ${
+                                            s.statusEmis === 'Terdaftar'
+                                              ? 'bg-blue-50 text-blue-700'
+                                              : 'bg-amber-50 text-amber-700'
+                                          }`}>
+                                            {s.statusEmis || 'Belum'}
+                                          </span>
+                                        </div>
+                                      )}
 
                                       {/* Verval */}
                                       <div className="pl-1 py-4.5 flex items-center">
@@ -2635,9 +2793,8 @@ export default function LembagaKelasSub({
                         setActiveActionStudentId(null);
                         setStudentDropdownPos(null);
                       }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-slate-800 flex items-center gap-1.5 transition-colors cursor-pointer"
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-slate-800 transition-colors cursor-pointer block"
                     >
-                      <User className="h-3.5 w-3.5 text-slate-500" />
                       <span>Detail</span>
                     </button>
                     <button
@@ -2647,9 +2804,8 @@ export default function LembagaKelasSub({
                         setActiveActionStudentId(null);
                         setStudentDropdownPos(null);
                       }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-[#00693E] flex items-center gap-1.5 transition-colors cursor-pointer"
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-[#00693E] transition-colors cursor-pointer block"
                     >
-                      <UserCheck className="h-3.5 w-3.5 text-[#00693E]" />
                       <span>Pilih</span>
                     </button>
                     <button
@@ -2659,9 +2815,8 @@ export default function LembagaKelasSub({
                         setActiveActionStudentId(null);
                         setStudentDropdownPos(null);
                       }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-blue-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 hover:text-blue-700 transition-colors cursor-pointer block"
                     >
-                      <ArrowRightLeft className="h-3.5 w-3.5 text-blue-600" />
                       <span>Pindah</span>
                     </button>
                     <button
@@ -2670,9 +2825,8 @@ export default function LembagaKelasSub({
                         setStudentDropdownPos(null);
                         handleRemoveStudentFromClass(s);
                       }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-rose-50 hover:text-rose-600 flex items-center gap-1.5 transition-colors cursor-pointer text-rose-600 border-t border-slate-50 mt-1"
+                      className="w-full text-left px-3 py-1.5 hover:bg-rose-50 hover:text-rose-600 transition-colors cursor-pointer text-rose-600 border-t border-slate-50 mt-1 block"
                     >
-                      <UserMinus className="h-3.5 w-3.5" />
                       <span>Keluarkan</span>
                     </button>
                   </>
